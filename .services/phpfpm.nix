@@ -2,6 +2,7 @@
 let
   php = pkgs.php83.buildEnv {
     extensions = { enabled, all }: enabled ++ (with all; [
+      curl
       gd
       intl
       pdo_mysql
@@ -10,13 +11,24 @@ let
       xdebug
       zip
     ]);
+
+
     extraConfig = ''
       memory_limit = 512M
       display_errors = On
       error_reporting = E_ALL
       xdebug.mode = debug
       xdebug.start_with_request = yes
+      xdebug.client_host = localhost
+      xdebug.client_port = 9003
+      xdebug.discover_client_host = yes
+      xdebug.log = /tmp/xdebug.log
     '';
+  };
+
+  phpEnv = pkgs.buildEnv {
+    name = "phpEnv";
+    paths = [ php php.packages.composer ];
   };
 
   phpfpmConfig = pkgs.writeText "php-fpm.conf" ''
@@ -38,7 +50,7 @@ in
   options = {
     package = lib.mkOption {
       type = lib.types.package;
-      default = php;
+      default = phpEnv;
       description = "PHP package to use";
     };
   };
@@ -48,7 +60,7 @@ in
       settings.processes."${name}" = {
         command = ''
           mkdir -p ${config.dataDir}
-          ${php}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
+          ${phpEnv}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
         '';
       };
     };

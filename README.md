@@ -25,15 +25,24 @@ Or use `nix develop`.
 
 With a local copy, you can update the programName and port near the top of the flake.nix, and then `nix run` to run your local copy.
 
-## Coming soon
+## Demo run target
 
-Actively working on this. The next target: 1. Get Drupal CMS running.
+You can install a minimal installation of Drupal CMS with a single command, without even cloning this repo!
 
 ```
-nix run .#demo
 nix run github:freelock/drupal-flake#demo
 ```
-This target will download and set up Drupal CMS, ready for installation.
+On my machine with warmed caches, this takes about 2 1/2 minutes to download Drupal CMS, provision a dev runtime environment, install Drupal, and open your browser to the new site.
+
+In the shell you run this in, the "init" task will print the admin username and password.
+
+## Run demo locally
+
+You can run this locally by cloning this repo, and then simply `nix run .#demo`.
+
+The demo setup is skipped if the web/index.php file already exists.
+
+## Coming soon
 
 2. Make a template
 
