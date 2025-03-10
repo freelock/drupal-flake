@@ -66,7 +66,7 @@ in
                   composer install
 
                   # Copy settings file without comments and enable local settings include
-                  grep -v '^#' web/sites/default/default.settings.php | grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
+                  grep -v '^#\|^/\*\|^ \*\|^ \*/\|^$' web/sites/default/default.settings.php | grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
                   echo 'if (file_exists($$app_root . "/" . $$site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
                   echo '  include $$app_root . "/" . $$site_path . "/settings.local.php";' >> web/sites/default/settings.php
                   echo "}" >> web/sites/default/settings.php
@@ -76,7 +76,7 @@ in
                   chmod 777 web/sites/default
                 fi
                 # Create local settings with database configuration
-                cat > web/sites/default/settings.local.php << 'EOL'
+                cat > web/sites/default/settings.nix.php << 'EOL'
                 <?php
                 $$databases['default']['default'] = [
                   'database' => 'drupal',
@@ -97,16 +97,17 @@ in
                 $$config['system.performance']['js']['preprocess'] = FALSE;
                 EOL
 
-                # Include local settings in main settings.php if not already included
-                if ! grep -q "settings.local.php" web/sites/default/settings.php; then
-                  echo "include $$app_root . '/' . $$site_path . '/settings.local.php';" >> web/sites/default/settings.php
-                fi
-
-                chmod 777 web/sites/default/settings.local.php
-
                 # Skip perms hardening, set config directory
                 echo '$$settings["skip_permissions_hardening"] = TRUE;' >> web/sites/default/settings.php
                 echo '$$settings["config_sync_directory"] = "../config/sync";' >> web/sites/default/settings.php
+
+                # Include nix settings in main settings.php if not already included
+                if ! grep -q "settings.nix.php" web/sites/default/settings.php; then
+                  echo 'if (file_exists($$app_root . "/" . $$site_path . "/settings.nix.php")) {' >> web/sites/default/settings.php
+                  echo '  include $$app_root . "/" . $$site_path . "/settings.nix.php";' >> web/sites/default/settings.php
+                  echo "}" >> web/sites/default/settings.php
+                fi
+
 
                 # Back up settings.php - drush site:install incorrectly adds $databases to settings.php
                 cp web/sites/default/settings.php web/sites/default/settings.php.tmp

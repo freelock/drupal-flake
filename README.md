@@ -25,6 +25,10 @@ Or use `nix develop`.
 
 With a local copy, you can update the programName and port near the top of the flake.nix, and then `nix run` to run your local copy.
 
+## Setting name, port, domain
+
+You can now set the base project name, port, domain, and PHP version using env vars, with --impure.
+
 ## Demo run target
 
 You can install a minimal installation of Drupal CMS with a single command, without even cloning this repo!

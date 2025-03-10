@@ -21,12 +21,39 @@
 
       perSystem = { self', pkgs, config, lib, ...}:
         let
-          projectName = "drupal-demo";
-          domain = "${projectName}.ddev.site";
-          port = "8088";
-          phpVersion = "php83";
-          # projectDir = builtins.toString( /. );
-          # mysqlDataDir = "${projectDir}/data/${projectName}-db";
+          # Function to read env vars with defaults
+          getEnvWithDefault = name: default:
+            let
+              envValue = builtins.getEnv name;
+              envFileStr = builtins.readFile (toString ./.env);
+              envFile = builtins.tryEval (
+                if builtins.pathExists ./.env
+                then builtins.listToAttrs (
+                  builtins.map (line:
+                    let pair = builtins.match "([^=]+)=(.*)" line;
+                    in if pair == null then null
+                      else { name = builtins.head pair; value = builtins.elemAt pair 1; }
+                  ) (builtins.filter (line: line != "" && !(lib.hasPrefix "#" line))
+                    (lib.splitString "\n" envFileStr))
+                )
+                else {}
+              );
+              envVars = if envFile.success then envFile.value
+                else {};
+            in
+            if envValue != ""
+              then envValue
+              else if builtins.hasAttr name envVars
+                then envVars.${name}
+                else default;
+
+          # Configuration with environment fallbacks
+          projectName = getEnvWithDefault "PROJECT_NAME" "drupal-demo";
+          domain = getEnvWithDefault "DOMAIN" "${projectName}.ddev.site";
+          port = getEnvWithDefault "PORT" "8088";
+          phpVersion = getEnvWithDefault "phpVersion" "php83";
+
+
           inherit (inputs.services-flake.lib) multiService;
 
 
