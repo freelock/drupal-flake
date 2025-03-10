@@ -1,6 +1,7 @@
 { config, lib, name, pkgs, ... }:
 let
-  php = pkgs.php83.buildEnv {
+  phpVersion = config.phpVersion;
+  php = (pkgs.${phpVersion}.buildEnv {
     extensions = { enabled, all }: enabled ++ (with all; [
       curl
       gd
@@ -18,13 +19,17 @@ let
       display_errors = On
       error_reporting = E_ALL
       xdebug.mode = debug
-      xdebug.start_with_request = yes
+      xdebug.start_with_request = trigger
       xdebug.client_host = localhost
       xdebug.client_port = 9003
       xdebug.discover_client_host = yes
+      xdebug.max_nesting_level = 512
       xdebug.log = /tmp/xdebug.log
+
+      [CLI]
+      memory_limit = -1
     '';
-  };
+  });
 
   phpEnv = pkgs.buildEnv {
     name = "phpEnv";
@@ -53,15 +58,22 @@ in
       default = phpEnv;
       description = "PHP package to use";
     };
+    phpVersion = lib.mkOption {
+      type = lib.types.str;
+      default = "php83";
+      description = "PHP version to use (php74, php80, php81, php82, php83)";
+    };
   };
 
   config = {
     outputs = {
-      settings.processes."${name}" = {
-        command = ''
-          mkdir -p ${config.dataDir}
-          ${phpEnv}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
-        '';
+      settings = {
+        processes."${name}" = {
+          command = ''
+            mkdir -p ${config.dataDir}
+            ${phpEnv}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
+          '';
+        };
       };
     };
   };

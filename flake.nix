@@ -24,6 +24,7 @@
           projectName = "drupal-demo";
           domain = "${projectName}.ddev.site";
           port = "8088";
+          phpVersion = "php83";
           mysqlDataDir = "/home/john/git/drupal-flake/data/${projectName}-db";
           inherit (inputs.services-flake.lib) multiService;
 
@@ -33,6 +34,7 @@
               inputs.services-flake.processComposeModules.default
               # (multiService ./.services/caddy.nix)
               (multiService ./.services/phpfpm.nix)
+              (multiService ./.services/init.nix)
             ];
             services.mysql."${projectName}-db" = {
               enable = true;
@@ -53,7 +55,7 @@
             services.phpfpm."${projectName}-php" = {
               enable = true;
               # Override PHP version:
-              #settings.phpfpm.package = pkgs.php83;
+              phpVersion = phpVersion;
             };
             # Create log dir
             settings.processes.setupNginx = {
@@ -132,67 +134,14 @@
         # New demo target to install Drupal
         process-compose."demo" = { config, ...}:
           lib.recursiveUpdate baseConfig {
-            settings.processes.init = {
-              command = ''
-                if [ ! -f "web/index.php" ]; then
-                  echo "Installing Drupal CMS..."
-                  composer create-project drupal/cms cms
-                  mv cms/* ./
-                  mv cms/.* ./
-                  rmdir cms
-                  composer install
+            services.init."cms" = {
+              enable = true;
+              #php = baseConfig.services.phpfpm."${projectName}-php".settings.php;
+              mysqlDataDir = mysqlDataDir;
+              # php = baseConfig.settings.processes."${projectName}-php".default;
+            };
+            settings.processes.cms = {
 
-                  # Copy settings file without comments and enable local settings include
-                  grep -v '^#' web/sites/default/default.settings.php | grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
-                  echo 'if (file_exists($$app_root . "/" . $$site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
-                  echo '  include $$app_root . "/" . $$site_path . "/settings.local.php";' >> web/sites/default/settings.php
-                  echo "}" >> web/sites/default/settings.php
-
-                  mkdir -p web/sites/default/files
-                  chmod 777 web/sites/default/settings.php
-                  chmod 777 web/sites/default
-                fi
-                # Create local settings with database configuration
-                cat > web/sites/default/settings.local.php << 'EOL'
-                <?php
-                $$databases['default']['default'] = [
-                  'database' => 'drupal',
-                  'username' => "drupal",
-                  'password' => "",
-                  'host' => 'localhost',
-                  'unix_socket' => '${mysqlDataDir}/mysql.sock',
-                  'driver' => 'mysql',
-                  'prefix' => "",
-                ];
-
-                $$settings['hash_salt'] = 'development-only-hash';
-                $$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/development.services.yml';
-                $$settings['cache']['bins']['render'] = 'cache.backend.null';
-                $$settings['cache']['bins']['dynamic_page_cache'] = 'cache.backend.null';
-                $$settings['cache']['bins']['page'] = 'cache.backend.null';
-                $$config['system.performance']['css']['preprocess'] = FALSE;
-                $$config['system.performance']['js']['preprocess'] = FALSE;
-                EOL
-
-                # Include local settings in main settings.php if not already included
-                if ! grep -q "settings.local.php" web/sites/default/settings.php; then
-                  echo "include $$app_root . '/' . $$site_path . '/settings.local.php';" >> web/sites/default/settings.php
-                fi
-
-                chmod 777 web/sites/default/settings.local.php
-
-                # Skip perms hardening, set config directory
-                echo '$$settings["skip_permissions_hardening"] = TRUE;' >> web/sites/default/settings.php
-                echo '$$config_directories["sync"] = "../config";' >> web/sites/default/settings.php
-
-                # Back up settings.php - drush site:install incorrectly adds $databases to settings.php
-                cp web/sites/default/settings.php web/sites/default/settings.php.tmp
-
-                drush site:install -y
-
-                # Restore settings.php
-                mv web/sites/default/settings.php.tmp web/sites/default/settings.php
-              '';
 
               readiness_probe = {
                 # Check if Drupal is installed
@@ -209,10 +158,12 @@
             };
 
             # Make other services depend on the Drupal installation
-            settings.processes."${projectName}-php".depends_on.init.condition = "process_completed_successfully";
-            settings.processes."${projectName}-nginx".depends_on.init.condition = "process_completed_successfully";
+            settings.processes."${projectName}-php".depends_on.cms.condition = "process_completed_successfully";
+            settings.processes."${projectName}-nginx".depends_on.cms.condition = "process_completed_successfully";
           };
 
+
+        # Dev shell for debugging
         devShells.default = pkgs.mkShell {
           inputsFrom = [
             config.process-compose."default".services.outputs.devShell
