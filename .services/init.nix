@@ -35,7 +35,7 @@ in
 {
   options = {
     package = lib.mkPackageOption pkgs "init" { };
-    mysqlDataDir = lib.mkOption {
+    projectName = lib.mkOption {
       type = lib.types.str;
       default = "";
       description = "The MySQL data directory";
@@ -83,7 +83,7 @@ in
                   'username' => "drupal",
                   'password' => "",
                   'host' => 'localhost',
-                    'unix_socket' => '${config.mysqlDataDir}/mysql.sock',
+                    'unix_socket' => "$PWD/data/${config.projectName}-db/mysql.sock",
                   'driver' => 'mysql',
                   'prefix' => "",
                 ];

@@ -25,7 +25,8 @@
           domain = "${projectName}.ddev.site";
           port = "8088";
           phpVersion = "php83";
-          mysqlDataDir = "/home/john/git/drupal-flake/data/${projectName}-db";
+          # projectDir = builtins.toString( /. );
+          # mysqlDataDir = "${projectDir}/data/${projectName}-db";
           inherit (inputs.services-flake.lib) multiService;
 
 
@@ -36,6 +37,7 @@
               (multiService ./.services/phpfpm.nix)
               (multiService ./.services/init.nix)
             ];
+
             services.mysql."${projectName}-db" = {
               enable = true;
               settings.mysqld = {
@@ -136,8 +138,9 @@
           lib.recursiveUpdate baseConfig {
             services.init."cms" = {
               enable = true;
+              projectName = projectName;
               #php = baseConfig.services.phpfpm."${projectName}-php".settings.php;
-              mysqlDataDir = mysqlDataDir;
+              # mysqlDataDir = mysqlDataDir; # /. + "/data/${projectName}-db";
               # php = baseConfig.settings.processes."${projectName}-php".default;
             };
             settings.processes.cms = {
