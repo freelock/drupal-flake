@@ -51,7 +51,8 @@
           projectName = getEnvWithDefault "PROJECT_NAME" "drupal-demo";
           domain = getEnvWithDefault "DOMAIN" "${projectName}.ddev.site";
           port = getEnvWithDefault "PORT" "8088";
-          phpVersion = getEnvWithDefault "phpVersion" "php83";
+          phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
+          drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
 
 
           inherit (inputs.services-flake.lib) multiService;
@@ -166,6 +167,7 @@
             services.init."cms" = {
               enable = true;
               projectName = projectName;
+              drupalPackage = drupalPackage;
               #php = baseConfig.services.phpfpm."${projectName}-php".settings.php;
               # mysqlDataDir = mysqlDataDir; # /. + "/data/${projectName}-db";
               # php = baseConfig.settings.processes."${projectName}-php".default;

@@ -25,10 +25,6 @@ Or use `nix develop`.
 
 With a local copy, you can update the programName and port near the top of the flake.nix, and then `nix run` to run your local copy.
 
-## Setting name, port, domain
-
-You can now set the base project name, port, domain, and PHP version using env vars, with --impure.
-
 ## Demo run target
 
 You can install a minimal installation of Drupal CMS with a single command, without even cloning this repo!
@@ -45,6 +41,16 @@ In the shell you run this in, the "init" task will print the admin username and 
 You can run this locally by cloning this repo, and then simply `nix run .#demo`.
 
 The demo setup is skipped if the web/index.php file already exists.
+
+## Setting name, port, domain
+
+You can now set the base project name, port, domain, PHP version, and Drupal package to install using env vars, with --impure. This works on the command line ahead of nix run.
+
+```
+PROJECT_NAME=myproject PORT=9901 DRUPAL_PACKAGE=drupal/recommended-project:^10.4 nix run --impure .#demo
+```
+.env support for these variables is planned, but not yet working.
+
 
 ## Coming soon
 

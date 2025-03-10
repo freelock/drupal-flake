@@ -50,6 +50,11 @@ in
       default = "php83";
       description = "PHP version to use (php74, php80, php81, php82, php83)";
     };
+    drupalPackage = lib.mkOption {
+      type = lib.types.str;
+      default = "drupal/cms";
+      description = "Drupal package to install";
+    };
   };
   config = {
     outputs.settings = {
@@ -59,7 +64,7 @@ in
                 export PATH="${php}/bin:${config.php.packages.composer}/bin:$PATH"
                 if [ ! -f "web/index.php" ]; then
                   echo "Installing Drupal CMS..."
-                  composer create-project drupal/${name} cms
+                  composer create-project ${config.drupalPackage} cms
                   mv cms/* ./
                   mv cms/.* ./
                   rmdir cms
