@@ -5,6 +5,7 @@ let
     extensions = { enabled, all }: enabled ++ (with all; [
       curl
       gd
+      imagick
       intl
       pdo_mysql
       soap
@@ -30,7 +31,14 @@ let
 
   phpEnv = pkgs.buildEnv {
     name = "phpEnv";
-    paths = [ php php.packages.composer ];
+    paths = [
+      php
+      php.packages.composer
+      php.packages.phpstan
+      php.packages.php-codesniffer
+      pkgs.phpunit
+      pkgs.mysql-client
+    ];
   };
 
   phpfpmConfig = pkgs.writeText "php-fpm.conf" ''
