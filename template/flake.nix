@@ -209,7 +209,7 @@
 
 
         # Dev shell for debugging
-        devShells.default = pkgs.mkShell {
+        devShells.default = pkgs.mkShellNoCC {
           inputsFrom = [
             config.process-compose."default".services.outputs.devShell
           ];
@@ -217,10 +217,11 @@
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
           ];
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
-	  shellHook = ``
+	  
+	  shellHook = ''
             echo "Entering development environment for ${projectName}"
 	    echo "Use nix run to start everything up, and then use a different shell for management. You can import a database using drush sqlc < db.sql"
-	  ``;
+	  '';
         };
       };
     };
