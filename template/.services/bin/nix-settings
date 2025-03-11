@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+# Exit on error
+set -e
+
+# Use params or env vars, fallback to defaults
+PROJECT_NAME=${1:-${PROJECT_NAME:-$(basename $(pwd))}}
+DOCROOT=${2:-${DOCROOT:-""}}
+SITE_PATH="${DOCROOT%/}${DOCROOT:+/}sites/default"
+SETTINGS_FILE="${SITE_PATH}/settings.php"
+NIX_SETTINGS_FILE="${SITE_PATH}/settings.nix.php"
+
+# Validate settings.php exists
+if [ ! -f "$SETTINGS_FILE" ]; then
+    echo "Error: ${SETTINGS_FILE} does not exist. Is the docroot correct? (${DOCROOT}) If not, set in .env or pass as second argument."
+    exit 1
+fi
+
+# Create settings.nix.php
+cat > "${NIX_SETTINGS_FILE}" << EOL
+<?php
+\$databases['default']['default'] = [
+  'database' => 'drupal',
+  'username' => "drupal",
+  'password' => "",
+  'host' => 'localhost',
+  'unix_socket' => "${PWD}/data/${PROJECT_NAME}-db/mysql.sock",
+  'driver' => 'mysql',
+  'prefix' => "",
+];
+
+\$settings['hash_salt'] = 'development-only-hash';
+\$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/development.services.yml';
+\$settings['cache']['bins']['render'] = 'cache.backend.null';
+\$settings['cache']['bins']['dynamic_page_cache'] = 'cache.backend.null';
+\$settings['cache']['bins']['page'] = 'cache.backend.null';
+\$config['system.performance']['css']['preprocess'] = FALSE;
+\$config['system.performance']['js']['preprocess'] = FALSE;
+EOL
+
+# Create files if not present
+mkdir -p ${SITE_PATH}/files
+
+# Add include to settings.php if not already present
+if ! grep -q "settings.nix.php" "$SETTINGS_FILE"; then
+  echo 'if (file_exists($app_root . "/" . $site_path . "/settings.nix.php")) {' >> "$SETTINGS_FILE"
+  echo '  include $app_root . "/" . $site_path . "/settings.nix.php";' >> "$SETTINGS_FILE"
+  echo "}" >> "$SETTINGS_FILE"
+fi
+

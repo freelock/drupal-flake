@@ -53,10 +53,9 @@
           port = getEnvWithDefault "PORT" "8088";
           phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
-
+          docroot = getEnvWithDefault "DOCROOT" "web";
 
           inherit (inputs.services-flake.lib) multiService;
-
 
           baseConfig ={
             imports = [
@@ -64,6 +63,7 @@
               # (multiService ./.services/caddy.nix)
               (multiService ./.services/phpfpm.nix)
               (multiService ./.services/init.nix)
+              (multiService ./.services/nix-settings.nix)
             ];
 
             services.mysql."${projectName}-db" = {
@@ -145,6 +145,17 @@
               # Override domain:
             #  settings.domain = domain;
             #};
+            services.nix-settings."nix-settings" = {
+              enable = true;
+              # Set the project name
+              projectName = projectName;
+              # Set the domain
+              domain = domain;
+              # Set the port
+              port = port;
+              # Set the docroot
+              docroot = docroot;
+            };
 
 
             # Open browser to the domain
@@ -173,8 +184,6 @@
               # php = baseConfig.settings.processes."${projectName}-php".default;
             };
             settings.processes.cms = {
-
-
               readiness_probe = {
                 # Check if Drupal is installed
                 exec.command = "test -f web/index.php";
@@ -190,6 +199,7 @@
             };
 
             # Make other services depend on the Drupal installation
+            settings.processes."nix-settings".depends_on.cms.condition = "process_completed_successfully";
             settings.processes."${projectName}-php".depends_on.cms.condition = "process_completed_successfully";
             settings.processes."${projectName}-nginx".depends_on.cms.condition = "process_completed_successfully";
           };
@@ -199,7 +209,9 @@
         devShells.default = pkgs.mkShell {
           inputsFrom = [
             config.process-compose."default".services.outputs.devShell
-
+          ];
+          buildInputs = with pkgs; [
+            (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
           ];
 
         };
