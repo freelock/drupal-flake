@@ -80,16 +80,12 @@ The Demo target installs a clean new copy of Drupal CMS -- but what about existi
 
 `nix run` starts up all the servers, and assumes a document root of /web. Coming soon:
 
-1. Make webroot configurable
-2. Fix existing settings.php to load settings.nix.php
-3. Make `drush sqlc` work -- currently erroring out due to no TTY
-4. Add other supporting tools to the devShell -- scripts to hook things up, mysql/mariadb, etc
-5. Fix Nginx's extra listen on port 8080 that prevents multiple instances from running
-6. SSL certs - possibly switch to Caddy
-7. Helper to run on standard ports (80, 443)
-8. Additional services -
+1. Add other supporting tools to the devShell -- scripts to hook things up, mysql/mariadb, etc
+2. SSL certs - possibly switch to Caddy
+3. Helper to run on standard ports (80, 443)
+4. Additional services -
   - Solr
   - PhpMyAdmin
   - Mailpit
   - Redis
-9. Build - Create a Docker image, VM, or Nix Package
+5. Build - Create a Docker image, VM, or Nix Package
