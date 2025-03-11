@@ -24,11 +24,17 @@
 
         Your new Drupal environment has been created!
 
+
         To get started:
+
         1. Edit .env to configure your project and add to git
+
         2. Run `direnv allow`
+
         3. Run `nix run` to start the environment
+
         4. Add .direnv, data and other environment-related dirs/files to .gitignore
+
 
         If you want to update this template, run `nix flake init -t github:freelock/drupal-flake --refresh`. This will overwrite existing files with the latest version of the template.
       '';

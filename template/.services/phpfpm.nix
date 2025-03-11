@@ -25,9 +25,6 @@ let
       xdebug.discover_client_host = yes
       xdebug.max_nesting_level = 512
       xdebug.log = /tmp/xdebug.log
-
-      [CLI]
-      memory_limit = -1
     '';
   });
 
@@ -61,7 +58,7 @@ in
     phpVersion = lib.mkOption {
       type = lib.types.str;
       default = "php83";
-      description = "PHP version to use (php74, php80, php81, php82, php83)";
+      description = "PHP version to use (php74, php80, php81, php82, php83, php84)";
     };
   };
 
