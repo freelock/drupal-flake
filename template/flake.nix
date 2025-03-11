@@ -213,7 +213,7 @@
           buildInputs = with pkgs; [
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
           ];
-
+          DRUSH_OPTIONS_URI = "http://${domain}:${port}";
         };
       };
     };
