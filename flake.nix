@@ -35,8 +35,10 @@
 
         4. Add .direnv, data and other environment-related dirs/files to .gitignore
 
+        ```
+        echo -e ".direnv\n/data\n/logs" >> .gitignore
+        ```
 
-        If you want to update this template, run `nix flake init -t github:freelock/drupal-flake --refresh`. This will overwrite existing files with the latest version of the template.
       '';
     };
 

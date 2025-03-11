@@ -84,12 +84,12 @@ The Demo target installs a clean new copy of Drupal CMS -- but what about existi
 2. Fix existing settings.php to load settings.nix.php
 3. Make `drush sqlc` work -- currently erroring out due to no TTY
 4. Add other supporting tools to the devShell -- scripts to hook things up, mysql/mariadb, etc
-4. Fix Nginx's extra listen on port 8080 that prevents multiple instances from running
-5. SSL certs - possibly switch to Caddy
-6. Helper to run on standard ports (80, 443)
-7. Additional services -
+5. Fix Nginx's extra listen on port 8080 that prevents multiple instances from running
+6. SSL certs - possibly switch to Caddy
+7. Helper to run on standard ports (80, 443)
+8. Additional services -
   - Solr
   - PhpMyAdmin
   - Mailpit
   - Redis
-8. Build - Create a Docker image, VM, or Nix Package
+9. Build - Create a Docker image, VM, or Nix Package
