@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+###
+# Utility to update to the latest version of the drupal-flake
+###
+
+rm -rf flake.nix flake.lock .envrc .env.example .services
+
+nix flake init -t github:freelock/drupal-flake
+
+nix flake update --commit-lock-file
