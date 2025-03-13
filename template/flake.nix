@@ -103,7 +103,7 @@
                 server {
                   listen ${port};
                   server_name ${domain};
-                  root web;
+                  root ${docroot};
                   index index.php index.html index.htm;
 
                   # logging
@@ -124,6 +124,12 @@
                     fastcgi_param PATH_INFO $fastcgi_path_info;
                     fastcgi_param QUERY_STRING $query_string;
                     fastcgi_intercept_errors on;
+		    # Set read timeout to an hour, for debugging
+                    fastcgi_read_timeout 3600;
+		    # Drupal sends big headers in dev mode, need to increase buffer size
+                    fastcgi_buffer_size 128k;
+                    fastcgi_buffers 4 256k;
+                    fastcgi_busy_buffers_size 256k;
                   }
 
                   # Deny access to . files
@@ -217,7 +223,7 @@
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
           ];
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
-	  
+
 	  shellHook = ''
             echo "Entering development environment for ${projectName}"
 	    echo "Use nix run to start everything up, and then use a different shell for management. You can import a database using drush sqlc < db.sql"
