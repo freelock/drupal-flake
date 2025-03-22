@@ -63,7 +63,7 @@ in
     package = pkgs.writeScriptBin "init" ''
       #!${pkgs.bash}/bin/bash
       export PHP_MEMORY_LIMIT=-1
-      export PATH="${php}/bin:${config.php.packages.composer}/bin:$PATH"
+      export PATH="${php}/bin:${config.php.packages.composer}/bin:$(pwd)/vendor/bin:$PATH"
       if [ ! -f "web/index.php" ]; then
         echo "Installing Drupal CMS..."
         composer create-project ${config.drupalPackage} cms
@@ -93,7 +93,7 @@ in
         # Back up settings.php - drush site:install incorrectly adds $databases to settings.php
         cp web/sites/default/settings.php web/sites/default/settings.php.tmp
 
-        vendor/bin/drush site:install -y
+        drush site:install -y
 
         # Restore settings.php
         mv web/sites/default/settings.php.tmp web/sites/default/settings.php
