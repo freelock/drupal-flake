@@ -93,7 +93,7 @@ in
         # Back up settings.php - drush site:install incorrectly adds $databases to settings.php
         cp web/sites/default/settings.php web/sites/default/settings.php.tmp
 
-        drush site:install -y
+        vendor/bin/drush site:install -y
 
         # Restore settings.php
         mv web/sites/default/settings.php.tmp web/sites/default/settings.php
