@@ -4,8 +4,22 @@
 # Utility to update to the latest version of the drupal-flake
 ###
 
+echo "Updating to the latest version of the drupal-flake..."
+
+if [ -n "$PROJECT_ROOT" ]; then
+  echo "Using PROJECT_ROOT: $PROJECT_ROOT"
+else
+  echo "PROJECT_ROOT is not set. Using the current directory."
+  PROJECT_ROOT=$(pwd)
+fi
+pushd "$PROJECT_ROOT" || exit 1
+# Remove the files in this template:
+echo "Removing old files..."
 rm -rf flake.nix flake.lock .envrc .env.example .services
 
+echo "Updating to the latest version of the drupal-flake..."
+# Initialize a new flake using the drupal-flake template
 nix flake init -t github:freelock/drupal-flake
 
-nix flake update --commit-lock-file
+popd || exit 1
+echo "Done!"

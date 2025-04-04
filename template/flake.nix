@@ -221,13 +221,15 @@
           ];
           buildInputs = with pkgs; [
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
+            (writeScriptBin "refresh-flake" (builtins.readFile ./.services/bin/refresh-flake))
           ];
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
+          PROJECT_ROOT = toString ./.;
 
-	  shellHook = ''
-            echo "Entering development environment for ${projectName}"
-	    echo "Use nix run to start everything up, and then use a different shell for management. You can import a database using drush sqlc < db.sql"
-	  '';
+          shellHook = ''
+                  echo "Entering development environment for ${projectName}"
+            echo "Use nix run to start everything up, and then use a different shell for management. You can import a database using drush sqlc < db.sql"
+          '';
         };
       };
     };
