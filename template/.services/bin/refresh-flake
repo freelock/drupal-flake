@@ -19,7 +19,7 @@ rm -rf flake.nix flake.lock .envrc .env.example .services
 
 echo "Updating to the latest version of the drupal-flake..."
 # Initialize a new flake using the drupal-flake template
-nix flake init -t github:freelock/drupal-flake
+nix flake init -t git+https://git.drupalcode.org/project/drupal_flake --refresh
 
 popd || exit 1
 echo "Done!"
