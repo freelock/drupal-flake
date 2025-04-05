@@ -49,6 +49,7 @@ let
 
     [www]
     listen = /tmp/${name}.sock
+    clear_env = no
     pm = dynamic
     pm.max_children = 5
     pm.start_servers = 2
@@ -78,9 +79,10 @@ in
             mkdir -p ${config.dataDir}
             ${phpEnv}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
           '';
-          environment = {
-            PATH = "${phpEnv}/bin:${pkgs.coreutils}/bin:${pkgs.bash}/bin";
-          };
+	  # To support project browser/auto updates, need path to composer and rsync.
+          environment = [
+            "PATH=${phpEnv}/bin:${pkgs.coreutils}/bin:${pkgs.rsync}/bin:${pkgs.bash}/bin"
+          ];
         };
       };
     };
