@@ -74,6 +74,7 @@
                 # bind_address = "127.0.0.1";
                 skip_grant_tables = true;
                 skip_networking = true;
+                transaction_isolation = "READ-COMMITTED";
               };
               initialDatabases = [
                 {
