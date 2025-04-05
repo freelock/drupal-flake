@@ -78,6 +78,9 @@ in
             mkdir -p ${config.dataDir}
             ${phpEnv}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
           '';
+          env = {
+            PATH = "${phpEnv}/bin:${pkgs.coreutils}/bin:${pkgs.bash}/bin";
+          };
         };
       };
     };

@@ -219,6 +219,10 @@
           inputsFrom = [
             config.process-compose."default".services.outputs.devShell
           ];
+          # Adds a "demo" command to start the demo scripts
+          nativeBuildInputs = [
+            self'.packages.demo
+          ];
           buildInputs = with pkgs; [
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
             (writeScriptBin "refresh-flake" (builtins.readFile ./.services/bin/refresh-flake))
