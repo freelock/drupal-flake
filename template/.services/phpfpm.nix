@@ -26,6 +26,7 @@ let
       xdebug.discover_client_host = yes
       xdebug.max_nesting_level = 512
       xdebug.log = /tmp/xdebug.log
+      mysqli.default_socket = ${config.dbSocket}
     '';
   });
 
@@ -69,6 +70,11 @@ in
       default = "php83";
       description = "PHP version to use (php74, php80, php81, php82, php83, php84)";
     };
+    dbSocket = lib.mkOption {
+      type = lib.types.str;
+      default = "data/db/mysql.sock";
+      description = "The MySQL socket path";
+    };
   };
 
   config = {
@@ -79,7 +85,7 @@ in
             mkdir -p ${config.dataDir}
             ${phpEnv}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
           '';
-	  # To support project browser/auto updates, need path to composer and rsync.
+	        # To support project browser/auto updates, need path to composer and rsync.
           environment = [
             "PATH=${phpEnv}/bin:${pkgs.coreutils}/bin:${pkgs.rsync}/bin:${pkgs.bash}/bin"
           ];

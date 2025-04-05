@@ -8,6 +8,11 @@
       default = "";
       description = "The project name for MySQL socket path";
     };
+    dbSocket = lib.mkOption {
+      type = lib.types.str;
+      default = "data/db/mysql.sock";
+      description = "The MySQL socket path";
+    };
     domain = lib.mkOption {
       type = lib.types.str;
       default = "";
@@ -30,7 +35,7 @@
     outputs.settings = {
       processes.${name} = {
         command = ''
-          ${pkgs.writeScript "nix-settings" (builtins.readFile ./bin/nix-settings)} ${config.projectName} ${config.docroot}
+          ${pkgs.writeScript "nix-settings" (builtins.readFile ./bin/nix-settings)} ${config.projectName} ${config.docroot} ${config.dbSocket}
         '';
       };
     };

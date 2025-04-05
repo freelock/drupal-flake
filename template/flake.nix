@@ -54,6 +54,7 @@
           phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
           docroot = getEnvWithDefault "DOCROOT" "web";
+          dbSocket = getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
 
           inherit (inputs.services-flake.lib) multiService;
 
@@ -87,6 +88,7 @@
               enable = true;
               # Override PHP version:
               phpVersion = phpVersion;
+              dbSocket = dbSocket;
             };
             # Create log dir
             settings.processes.setupNginx = {
@@ -97,8 +99,8 @@
             services.nginx."${projectName}-nginx" = {
               enable = true;
 
-	      # Without this Nginx always claims port 8080, and can't be started elsewhere.
-	      port = lib.strings.toInt port;
+	            # Without this Nginx always claims port 8080, and can't be started elsewhere.
+	            port = lib.strings.toInt port;
               # Override domain:
               httpConfig = ''
                 server {
@@ -125,9 +127,9 @@
                     fastcgi_param PATH_INFO $fastcgi_path_info;
                     fastcgi_param QUERY_STRING $query_string;
                     fastcgi_intercept_errors on;
-		    # Set read timeout to an hour, for debugging
+		                # Set read timeout to an hour, for debugging
                     fastcgi_read_timeout 3600;
-		    # Drupal sends big headers in dev mode, need to increase buffer size
+		                # Drupal sends big headers in dev mode, need to increase buffer size
                     fastcgi_buffer_size 128k;
                     fastcgi_buffers 4 256k;
                     fastcgi_busy_buffers_size 256k;
@@ -165,6 +167,8 @@
               port = port;
               # Set the docroot
               docroot = docroot;
+              # Set the MySQL socket path
+              dbSocket = dbSocket;
             };
 
 
@@ -235,13 +239,27 @@
                 -d xdebug.client_port=9003 \
                 $PROJECT_ROOT/vendor/bin/drush.php "$@"
             '')
+            (writeScriptBin "?" ''
+              #!${pkgs.bash}/bin/bash
+              echo -e "\n\033[1;34m${projectName} Development Commands:\033[0m"
+              echo -e "\033[1;32mnix run\033[0m                 Start the development environment"
+              echo -e "\033[1;32mnix run .#demo\033[0m          Set up a new Drupal site, or start servers"
+              echo -e "\033[1;32mdemo\033[0m                    Set up a new Drupal site, or start servers"
+              echo -e "\033[1;32mxdrush\033[0m                  Run Drush with Xdebug enabled"
+              echo -e "\033[1;32mnix-settings\033[0m            Add/include settings.nix.php"
+              echo -e "\033[1;32mrefresh-flake [path]\033[0m    Refresh the flake from Drupal.org or [path]"
+              echo -e "\033[1;32m?\033[0m                       Show this help message"
+              echo ""
+              echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
+            '')
           ];
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
 
           shellHook = ''
             export PROJECT_ROOT="$PWD"
+            export DB_SOCKET="$PWD/${dbSocket}"
             echo "Entering development environment for ${projectName}"
-            echo "Use nix run to start everything up, and then use a different shell for management. You can import a database using drush sqlc < db.sql"
+            echo "Use '?' to see the commands provided in this flake."
           '';
         };
       };

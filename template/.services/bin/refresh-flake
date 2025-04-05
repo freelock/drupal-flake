@@ -17,9 +17,10 @@ pushd "$PROJECT_ROOT" || exit 1
 echo "Removing old files..."
 rm -rf flake.nix flake.lock .envrc .env.example .services
 
-echo "Updating to the latest version of the drupal-flake..."
 # Initialize a new flake using the drupal-flake template
-nix flake init -t git+https://git.drupalcode.org/project/drupal_flake --refresh
+FLAKE_SOURCE=${1:-"git+https://git.drupalcode.org/project/drupal_flake"}
+echo "Updating to the latest version of the drupal-flake from $FLAKE_SOURCE..."
+nix flake init -t "$FLAKE_SOURCE" --refresh
 
 popd || exit 1
 echo "Done!"

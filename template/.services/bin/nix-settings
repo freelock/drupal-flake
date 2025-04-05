@@ -5,7 +5,8 @@ set -e
 
 # Use params or env vars, fallback to defaults
 PROJECT_NAME=${1:-${PROJECT_NAME:-$(basename $(pwd))}}
-DOCROOT=${2:-${DOCROOT:-""}}
+DOCROOT=${2:-${DOCROOT:-"web"}}
+DB_SOCKET=${3:-${DB_SOCKET:-"${PWD}/data/${PROJECT_NAME}-db/mysql.sock"}}
 SITE_PATH="${DOCROOT%/}${DOCROOT:+/}sites/default"
 SETTINGS_FILE="${SITE_PATH}/settings.php"
 NIX_SETTINGS_FILE="${SITE_PATH}/settings.nix.php"
@@ -24,7 +25,7 @@ cat > "${NIX_SETTINGS_FILE}" << EOL
   'username' => "drupal",
   'password' => "",
   'host' => 'localhost',
-  'unix_socket' => "${PWD}/data/${PROJECT_NAME}-db/mysql.sock",
+  'unix_socket' => "${PWD}/${DB_SOCKET}",
   'driver' => 'mysql',
   'prefix' => "",
 ];
@@ -41,10 +42,22 @@ EOL
 # Create files if not present
 mkdir -p ${SITE_PATH}/files
 
-# Add include to settings.php if not already present
-if ! grep -q "settings.nix.php" "$SETTINGS_FILE"; then
-  echo 'if (file_exists($app_root . "/" . $site_path . "/settings.nix.php")) {' >> "$SETTINGS_FILE"
-  echo '  include $app_root . "/" . $site_path . "/settings.nix.php";' >> "$SETTINGS_FILE"
-  echo "}" >> "$SETTINGS_FILE"
+# Add or replace include block in settings.php
+if grep -q "settings\.nix\.php" "$SETTINGS_FILE"; then
+  # Remove block only if DB_SOCKET check is not present
+  if ! grep -q "file_exists(.*\.sock.*)" "$SETTINGS_FILE"; then
+    sed -i '/if (file_exists($app_root \. "\/" \. $site_path \. "\/settings\.nix\.php")) {/,/^}/d' "$SETTINGS_FILE"
+  fi
+fi
+
+# Add new include block if not already present
+if ! grep -q "settings\.nix\.php" "$SETTINGS_FILE"; then
+  cat >> "$SETTINGS_FILE" << EOL
+if (file_exists(\$app_root . "/" . \$site_path . "/settings.nix.php") &&
+  file_exists("${PWD}/${DB_SOCKET}") &&
+  filetype("${PWD}/${DB_SOCKET}") === "socket") {
+  include \$app_root . "/" . \$site_path . "/settings.nix.php";
+}
+EOL
 fi
 
