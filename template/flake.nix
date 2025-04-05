@@ -227,6 +227,14 @@
           buildInputs = with pkgs; [
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
             (writeScriptBin "refresh-flake" (builtins.readFile ./.services/bin/refresh-flake))
+            (writeScriptBin "xdrush" ''
+              #!${pkgs.bash}/bin/bash
+              php -d xdebug.mode=debug \
+                -d xdebug.start_with_request=yes \
+                -d xdebug.client_host=localhost \
+                -d xdebug.client_port=9003 \
+                $PROJECT_ROOT/vendor/bin/drush.php "$@"
+            '')
           ];
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
 
