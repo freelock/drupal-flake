@@ -42,22 +42,59 @@ EOL
 # Create files if not present
 mkdir -p ${SITE_PATH}/files
 
-# Add or replace include block in settings.php
-if grep -q "settings\.nix\.php" "$SETTINGS_FILE"; then
-  # Remove block only if DB_SOCKET check is not present
-  if ! grep -q "file_exists(.*\.sock.*)" "$SETTINGS_FILE"; then
-    sed -i '/if (file_exists($app_root \. "\/" \. $site_path \. "\/settings\.nix\.php")) {/,/^}/d' "$SETTINGS_FILE"
-  fi
-fi
-
-# Add new include block if not already present
-if ! grep -q "settings\.nix\.php" "$SETTINGS_FILE"; then
-  cat >> "$SETTINGS_FILE" << EOL
+# Define the NIX SETTINGS block content
+NIX_BLOCK=$(cat <<EOF
+# BEGIN NIX SETTINGS
 if (file_exists(\$app_root . "/" . \$site_path . "/settings.nix.php") &&
   file_exists("${PWD}/${DB_SOCKET}") &&
   filetype("${PWD}/${DB_SOCKET}") === "socket") {
   include \$app_root . "/" . \$site_path . "/settings.nix.php";
 }
-EOL
+# END NIX SETTINGS
+EOF
+)
+
+# Check if the NIX SETTINGS block exists
+if grep -q "# BEGIN NIX SETTINGS" "$SETTINGS_FILE" && grep -q "# END NIX SETTINGS" "$SETTINGS_FILE"; then
+  # Block exists, replace content between comments
+  TMP_FILE=$(mktemp)
+  # Process the file line by line
+  awk '
+    /# BEGIN NIX SETTINGS/ {
+      print;
+      print_block = 1;
+      next;
+    }
+    /# END NIX SETTINGS/ {
+      print_block = 0;
+      in_block = 0;
+      print;
+      next;
+    }
+    print_block {
+      # Skip lines between BEGIN and END markers
+      in_block = 1;
+      next;
+    }
+    {
+      # Print all other lines
+      print;
+    }
+  ' "$SETTINGS_FILE" > "$TMP_FILE"
+  # Insert new block content after BEGIN marker
+  sed -i "/# BEGIN NIX SETTINGS/a\
+if (file_exists(\$app_root . '/' . \$site_path . '/settings.nix.php') \&\&\
+  file_exists('${PWD}/${DB_SOCKET}') \&\&\
+  filetype('${PWD}/${DB_SOCKET}') === 'socket') {\
+  include \$app_root . '/' . \$site_path . '/settings.nix.php';\
+}" "$TMP_FILE"
+
+ # Replace original file
+  mv "$TMP_FILE" "$SETTINGS_FILE"
+  echo "NIX SETTINGS block updated in $SETTINGS_FILE"
+else
+  # Block doesn't exist, add it to the end of the file
+  echo -e "\n$NIX_BLOCK" >> "$SETTINGS_FILE"
+  echo "NIX SETTINGS block added to $SETTINGS_FILE"
 fi
 

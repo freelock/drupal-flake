@@ -54,6 +54,7 @@
           phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
           docroot = getEnvWithDefault "DOCROOT" "web";
+          # TODO: figure out how to make this an absolute path, primarily for php-fpm.
           dbSocket = getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
 
           inherit (inputs.services-flake.lib) multiService;
@@ -64,6 +65,7 @@
               # (multiService ./.services/caddy.nix)
               (multiService ./.services/phpfpm.nix)
               (multiService ./.services/init.nix)
+              (multiService ./.services/config.nix)
               (multiService ./.services/nix-settings.nix)
             ];
 
@@ -88,6 +90,7 @@
               enable = true;
               # Override PHP version:
               phpVersion = phpVersion;
+              # TODO: This currently should have ${PWD}/ prefixing it, so this is currently wrong.
               dbSocket = dbSocket;
             };
             # Create log dir
@@ -218,6 +221,29 @@
             settings.processes."${projectName}-nginx".depends_on.cms.condition = "process_completed_successfully";
           };
 
+        # Config target to install drupal from config
+        process-compose."config" = { config, ...}:
+          lib.recursiveUpdate baseConfig {
+            services.config."cms" = {
+              enable = true;
+              projectName = projectName;
+            };
+            settings.processes.cms = {
+              depends_on = {
+                "nix-settings" = {
+                  condition = "process_completed_successfully";
+                };
+              };
+              availability = {
+                restart = "no";
+              };
+            };
+
+            # Make other services depend on the Drupal installation
+            #settings.processes."nix-settings".depends_on.cms.condition = "process_completed_successfully";
+            settings.processes."${projectName}-php".depends_on.cms.condition = "process_completed_successfully";
+            settings.processes."${projectName}-nginx".depends_on.cms.condition = "process_completed_successfully";
+          };
 
         # Dev shell for debugging
         devShells.default = pkgs.mkShellNoCC {
@@ -227,6 +253,14 @@
           # Adds a "demo" command to start the demo scripts
           nativeBuildInputs = [
             self'.packages.demo
+            (pkgs.writeScriptBin "start-config" ''
+              #!${pkgs.bash}/bin/bash
+              nix run .#config
+            '')
+            (pkgs.writeScriptBin "start" ''
+              #!${pkgs.bash}/bin/bash
+              nix run
+            '')
           ];
           buildInputs = with pkgs; [
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
@@ -243,10 +277,12 @@
               #!${pkgs.bash}/bin/bash
               echo -e "\n\033[1;34m${projectName} Development Commands:\033[0m"
               echo -e "\033[1;32mnix run\033[0m                 Start the development environment"
+              echo -e "\033[1;32mstart\033[0m                   Start the development environment"
               echo -e "\033[1;32mnix run .#demo\033[0m          Set up a new Drupal site, or start servers"
-              echo -e "\033[1;32mdemo\033[0m                    Set up a new Drupal site, or start servers"
+              echo -e "\033[1;32mstart-demo\033[0m              Set up a new Drupal site, or start servers"
+              echo -e "\033[1;32mstart-config\033[0m            Start servers and install Drupal from config - CLOBBERS EXISTING DATABASE"
               echo -e "\033[1;32mxdrush\033[0m                  Run Drush with Xdebug enabled"
-              echo -e "\033[1;32mnix-settings\033[0m            Add/include settings.nix.php"
+              echo -e "\033[1;32mnix-settings\033[0m            Add/include settings.nix.php (done automatically with start)"
               echo -e "\033[1;32mrefresh-flake [path]\033[0m    Refresh the flake from Drupal.org or [path]"
               echo -e "\033[1;32m?\033[0m                       Show this help message"
               echo ""
@@ -257,6 +293,7 @@
 
           shellHook = ''
             export PROJECT_ROOT="$PWD"
+            export PATH="$PWD/vendor/bin:$PATH"
             export DB_SOCKET="$PWD/${dbSocket}"
             echo "Entering development environment for ${projectName}"
             echo "Use '?' to see the commands provided in this flake."

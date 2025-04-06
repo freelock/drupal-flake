@@ -26,7 +26,8 @@ let
       xdebug.discover_client_host = yes
       xdebug.max_nesting_level = 512
       xdebug.log = /tmp/xdebug.log
-      mysqli.default_socket = ${config.dbSocket}
+      # Disable socket override until can find a better way to do this
+      # mysqli.default_socket = ${config.dbSocket}
     '';
   });
 
