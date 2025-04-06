@@ -24,21 +24,18 @@
 
         Your new Drupal environment has been created!
 
-
         To get started:
 
-        1. Edit .env to configure your project and add to git
-
-        2. Run `direnv allow`
-
-        3. Run `nix run` to start the environment
-
-        4. Add .direnv, data and other environment-related dirs/files to .gitignore
+        1. Edit .env to configure your project and add to git.
+        2. Run `direnv allow` (optional).
+        3. Run `nix develop` to get a devShell.
+        4. Run `?` to see available commands.
+        5. Use `start` to start the environment, `start-demo` to start a demo of Drupal CMS, or `start-config` to install from config.
+        6. Add .direnv, data and other environment-related dirs/files to .gitignore.
 
         ```
         echo -e ".direnv\n/data\n/logs" >> .gitignore
         ```
-
       '';
     };
 

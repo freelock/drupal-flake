@@ -38,6 +38,12 @@ On my machine with warmed caches, this takes about 2 1/2 minutes to download Dru
 
 In the shell you run this in, the "init" task will print the admin username and password.
 
+## Config run target
+
+If this flake is added to an existing project, you can install the site from config using `nix run .#config`. Or if you enter the dev-shell, there's a shortcut - `start-config`.
+
+Note that this will clobber the existing database and do a fresh install from config. The config sync directory does need to be set correctly in $settings.
+
 ## Install locally
 
 You can run this locally by installing the template:
@@ -70,14 +76,25 @@ To be able to resolve your site to localhost, you may need to add an entry to yo
 
 Ports must be higher than 1024, or else you need some sort of root access to be able to use them.
 
+## Commands available in Dev Shell
+
+### Development Commands:
+nix run                 Start the development environment
+start                   Start the development environment
+nix run .#demo          Set up a new Drupal site, or start servers
+start-demo              Set up a new Drupal site, or start servers
+start-config            Start servers and install Drupal from config - CLOBBERS EXISTING DATABASE
+xdrush                  Run Drush with Xdebug enabled
+nix-settings            Add/include settings.nix.php (done automatically with start)
+refresh-flake [path]    Refresh the flake from Drupal.org or [path]
+?                       Show this help message
+
 
 ## Next up
 
-The Demo target installs a clean new copy of Drupal CMS -- but what about existing projects?
+This is currently working well, and has a nice developer experience. Here are some things we are considering for the future.
 
-`nix run` without a target (the default) starts up all the servers, and assumes a document root of /web. Coming soon:
-
-1. Add other supporting tools to the devShell -- scripts to hook things up, mysql/mariadb, etc
+1. Add other supporting tools to the devShell -- scripts to import recipes/default content, import/pull databases, etc
 2. SSL certs - possibly switch to Caddy
 3. Helper to run on standard ports (80, 443)
 4. Additional services -
