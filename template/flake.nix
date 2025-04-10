@@ -257,6 +257,10 @@
               #!${pkgs.bash}/bin/bash
               nix run .#config
             '')
+            (pkgs.writeScriptBin "start-demo" ''
+              #!${pkgs.bash}/bin/bash
+              nix run .#demo
+            '')
             (pkgs.writeScriptBin "start" ''
               #!${pkgs.bash}/bin/bash
               nix run
