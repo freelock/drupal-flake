@@ -196,6 +196,7 @@
               enable = true;
               projectName = projectName;
               drupalPackage = drupalPackage;
+              dbSocket = dbSocket;
               #php = baseConfig.services.phpfpm."${projectName}-php".settings.php;
               # mysqlDataDir = mysqlDataDir; # /. + "/data/${projectName}-db";
               # php = baseConfig.settings.processes."${projectName}-php".default;

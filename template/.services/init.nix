@@ -48,6 +48,11 @@ in
       default = php;
       description = "PHP package to use";
     };
+    dbSocket = lib.mkOption {
+      type = lib.types.str;
+      default = "data/db/mysql.sock";
+      description = "The MySQL socket path";
+    };
     phpVersion = lib.mkOption {
       type = lib.types.str;
       default = "php83";
@@ -82,10 +87,8 @@ in
         echo '$settings["skip_permissions_hardening"] = TRUE;' >> web/sites/default/settings.php
         echo '$settings["config_sync_directory"] = "../config/sync";' >> web/sites/default/settings.php
 
-
-
         # Run nix-settings to configure database and development settings
-        ${nix-settings}/bin/nix-settings ${config.projectName} web
+        ${nix-settings}/bin/nix-settings ${config.projectName} web ${config.dbSocket}
 
         chmod 777 web/sites/default/settings.php
         chmod 777 web/sites/default
