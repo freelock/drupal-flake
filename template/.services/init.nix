@@ -74,8 +74,8 @@ in
 
         # Copy settings file without comments and enable local settings include
         grep -v '^#\|^/\*\|^ \*\|^ \*/\|^$' web/sites/default/default.settings.php | grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
-        echo 'if (file_exists($$app_root . "/" . $$site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
-        echo '  include $$app_root . "/" . $$site_path . "/settings.local.php";' >> web/sites/default/settings.php
+        echo 'if (file_exists($$app_root . "/" . $site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
+        echo '  include $$app_root . "/" . $site_path . "/settings.local.php";' >> web/sites/default/settings.php
         echo "}" >> web/sites/default/settings.php
 
         # Skip perms hardening, set config directory
