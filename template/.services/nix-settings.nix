@@ -28,6 +28,11 @@
       default = "web";
       description = "The document root";
     };
+    projectRoot = lib.mkOption {
+      type = lib.types.str;
+      default = "../";
+      description = "The relative path from docroot to project root";
+    };
   };
 
   config = {
@@ -35,7 +40,7 @@
     outputs.settings = {
       processes.${name} = {
         command = ''
-          ${pkgs.writeScript "nix-settings" (builtins.readFile ./bin/nix-settings)} ${config.projectName} ${config.docroot} ${config.dbSocket}
+          ${pkgs.writeScript "nix-settings" (builtins.readFile ./bin/nix-settings)} ${config.projectName} ${config.docroot} ${config.dbSocket} ${config.projectRoot}
         '';
       };
     };

@@ -54,6 +54,13 @@
           phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
           docroot = getEnvWithDefault "DOCROOT" "web";
+          # Calculate the relative path from docroot to project root
+          projectRoot =
+            if docroot == "." then "."
+            else if builtins.match "^[^/]+$" docroot != null then "../"
+            else "../" + builtins.concatStringsSep "" (builtins.genList (i: "../") (
+              (builtins.length (builtins.filter (x: x != "") (lib.splitString "/" docroot))) - 1
+            ));
           # TODO: figure out how to make this an absolute path, primarily for php-fpm.
           dbSocket = getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
 
@@ -170,6 +177,8 @@
               port = port;
               # Set the docroot
               docroot = docroot;
+              # Set the project root relative path
+              projectRoot = projectRoot;
               # Set the MySQL socket path
               dbSocket = dbSocket;
             };
@@ -298,6 +307,7 @@
 
           shellHook = ''
             export PROJECT_ROOT="$PWD"
+            export PROJECT_ROOT_REL="${projectRoot}"
             export PATH="$PWD/vendor/bin:$PATH"
             export DB_SOCKET="$PWD/${dbSocket}"
             echo "Entering development environment for ${projectName}"

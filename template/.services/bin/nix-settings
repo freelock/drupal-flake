@@ -7,6 +7,7 @@ set -e
 PROJECT_NAME=${1:-${PROJECT_NAME:-$(basename $(pwd))}}
 DOCROOT=${2:-${DOCROOT:-"web"}}
 DB_SOCKET=${3:-${DB_SOCKET:-"${PWD}/data/${PROJECT_NAME}-db/mysql.sock"}}
+PROJECT_ROOT_REL=${4:-${PROJECT_ROOT_REL:-"../"}}
 SITE_PATH="${DOCROOT%/}${DOCROOT:+/}sites/default"
 SETTINGS_FILE="${SITE_PATH}/settings.php"
 NIX_SETTINGS_FILE="${SITE_PATH}/settings.nix.php"
@@ -17,6 +18,14 @@ if [ ! -f "$SETTINGS_FILE" ]; then
     exit 1
 fi
 
+# Extract DB_SOCKET_REL - relative path from docroot to socket
+# Remove trailing slashes from PROJECT_ROOT_REL
+PROJECT_ROOT_REL="${PROJECT_ROOT_REL%/}"
+# Construct the relative path to the socket
+SOCKET_PATH="data/${PROJECT_NAME}-db/mysql.sock"
+# Extract DB_SOCKET_REL - relative path from docroot to socket
+DB_SOCKET_REL="${PROJECT_ROOT_REL}/data/${PROJECT_NAME}-db/mysql.sock"
+
 # Create settings.nix.php
 cat > "${NIX_SETTINGS_FILE}" << EOL
 <?php
@@ -25,7 +34,7 @@ cat > "${NIX_SETTINGS_FILE}" << EOL
   'username' => "drupal",
   'password' => "",
   'host' => 'localhost',
-  'unix_socket' => "${PWD}/${DB_SOCKET}",
+  'unix_socket' => "\$app_root/${DB_SOCKET_REL}",
   'driver' => 'mysql',
   'prefix' => "",
 ];
@@ -46,8 +55,8 @@ mkdir -p ${SITE_PATH}/files
 NIX_BLOCK=$(cat <<EOF
 # BEGIN NIX SETTINGS
 if (file_exists(\$app_root . "/" . \$site_path . "/settings.nix.php") &&
-  file_exists("${PWD}/${DB_SOCKET}") &&
-  filetype("${PWD}/${DB_SOCKET}") === "socket") {
+  file_exists(\$app_root . "/${DB_SOCKET_REL} &&
+  filetype(\$app_root . "/${DB_SOCKET_REL} === "socket") {
   include \$app_root . "/" . \$site_path . "/settings.nix.php";
 }
 # END NIX SETTINGS
@@ -82,14 +91,14 @@ if grep -q "# BEGIN NIX SETTINGS" "$SETTINGS_FILE" && grep -q "# END NIX SETTING
     }
   ' "$SETTINGS_FILE" > "$TMP_FILE"
   # Insert new block content after BEGIN marker
-  sed -i "/# BEGIN NIX SETTINGS/a\
-if (file_exists(\$app_root . '/' . \$site_path . '/settings.nix.php') \&\&\
-  file_exists('${PWD}/${DB_SOCKET}') \&\&\
-  filetype('${PWD}/${DB_SOCKET}') === 'socket') {\
-  include \$app_root . '/' . \$site_path . '/settings.nix.php';\
+  sed -i "/# BEGIN NIX SETTINGS/a\\
+if (file_exists(\$app_root . '/' . \$site_path . '/settings.nix.php') \&\&\\
+  file_exists(\$app_root . '/${DB_SOCKET_REL}') \&\&\\
+  filetype(\$app_root . '/${DB_SOCKET_REL}') === 'socket') {\\
+  include \$app_root . '/' . \$site_path . '/settings.nix.php';\\
 }" "$TMP_FILE"
 
- # Replace original file
+  # Replace original file
   mv "$TMP_FILE" "$SETTINGS_FILE"
   echo "NIX SETTINGS block updated in $SETTINGS_FILE"
 else
