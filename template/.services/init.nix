@@ -48,6 +48,11 @@ in
       default = php;
       description = "PHP package to use";
     };
+    dbSocket = lib.mkOption {
+      type = lib.types.str;
+      default = "data/db/mysql.sock";
+      description = "The MySQL socket path";
+    };
     phpVersion = lib.mkOption {
       type = lib.types.str;
       default = "php83";
@@ -74,18 +79,16 @@ in
 
         # Copy settings file without comments and enable local settings include
         grep -v '^#\|^/\*\|^ \*\|^ \*/\|^$' web/sites/default/default.settings.php | grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
-        echo 'if (file_exists($$app_root . "/" . $$site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
-        echo '  include $$app_root . "/" . $$site_path . "/settings.local.php";' >> web/sites/default/settings.php
+        echo 'if (file_exists($app_root . "/" . $site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
+        echo '  include $app_root . "/" . $site_path . "/settings.local.php";' >> web/sites/default/settings.php
         echo "}" >> web/sites/default/settings.php
 
         # Skip perms hardening, set config directory
         echo '$settings["skip_permissions_hardening"] = TRUE;' >> web/sites/default/settings.php
         echo '$settings["config_sync_directory"] = "../config/sync";' >> web/sites/default/settings.php
 
-
-
         # Run nix-settings to configure database and development settings
-        ${nix-settings}/bin/nix-settings ${config.projectName} web
+        ${nix-settings}/bin/nix-settings ${config.projectName} web ${config.dbSocket}
 
         chmod 777 web/sites/default/settings.php
         chmod 777 web/sites/default

@@ -24,9 +24,6 @@ let
     '';
   });
 
-  # Create nix-settings package separately
-  nix-settings = pkgs.writeScriptBin "nix-settings" (builtins.readFile ./bin/nix-settings);
-
 in
 {
   options = {
