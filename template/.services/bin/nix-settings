@@ -54,10 +54,10 @@ mkdir -p ${SITE_PATH}/files
 # Define the NIX SETTINGS block content
 NIX_BLOCK=$(cat <<EOF
 # BEGIN NIX SETTINGS
-if (file_exists(\$app_root . "/" . \$site_path . "/settings.nix.php") &&
-  file_exists(\$app_root . "/${DB_SOCKET_REL} &&
-  filetype(\$app_root . "/${DB_SOCKET_REL} === "socket") {
-  include \$app_root . "/" . \$site_path . "/settings.nix.php";
+if (file_exists(\$app_root . '/' . \$site_path . '/settings.nix.php') &&
+  file_exists(\$app_root . '/${DB_SOCKET_REL}') &&
+  filetype(\$app_root . '/${DB_SOCKET_REL}') === 'socket') {
+  include \$app_root . '/' . \$site_path . '/settings.nix.php';
 }
 # END NIX SETTINGS
 EOF
