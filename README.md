@@ -76,6 +76,20 @@ To be able to resolve your site to localhost, you may need to add an entry to yo
 
 Ports must be higher than 1024, or else you need some sort of root access to be able to use them.
 
+### PHP Versions
+
+You can specify the PHP version to use by setting the `PHP_VERSION` environment variable or adding it to your `.env` file:
+
+```
+PHP_VERSION=php83  # Default, uses php83 from nixpkgs nixos-unstable
+```
+
+Available PHP versions include:
+- php74 (from a pinned nixpkgs commit: 6e3a86f2f73a466656a401302d3ece26fba401d9)
+  - Note: php74 does not include phpunit, php-codesniffer, and phpstan due to availability limitations
+  - Includes the standalone drush command for older Drupal sites that use Drush 8
+- php80, php81, php82, php83, php84 (from nixpkgs nixos-unstable)
+
 ## Commands available in Dev Shell
 
 ### Development Commands:

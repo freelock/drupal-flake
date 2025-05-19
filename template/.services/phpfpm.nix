@@ -1,7 +1,9 @@
 { config, lib, name, pkgs, ... }:
 let
+  # Use the custom pkgs if provided, otherwise use the default
+  finalPkgs = if config ? pkgs then config.pkgs else pkgs;
   phpVersion = config.phpVersion;
-  php = (pkgs.${phpVersion}.buildEnv {
+  php = (finalPkgs.${phpVersion}.buildEnv {
     extensions = { enabled, all }: enabled ++ (with all; [
       curl
       gd
@@ -31,16 +33,25 @@ let
     '';
   });
 
-  phpEnv = pkgs.buildEnv {
-    name = "phpEnv";
-    paths = [
+  # Determine paths based on PHP version - several packages aren't available in php74
+  phpPaths =
+    if phpVersion == "php74" then [
+      php
+      php.packages.composer
+      finalPkgs.mysql-client
+    ] ++ lib.optional (finalPkgs ? drush) finalPkgs.drush
+    else [
       php
       php.packages.composer
       php.packages.phpstan
       php.packages.php-codesniffer
-      pkgs.phpunit
-      pkgs.mysql-client
+      finalPkgs.phpunit
+      finalPkgs.mysql-client
     ];
+
+  phpEnv = finalPkgs.buildEnv {
+    name = "phpEnv";
+    paths = phpPaths;
   };
 
   phpfpmConfig = pkgs.writeText "php-fpm.conf" ''
@@ -70,6 +81,11 @@ in
       type = lib.types.str;
       default = "php83";
       description = "PHP version to use (php74, php80, php81, php82, php83, php84)";
+    };
+    pkgs = lib.mkOption {
+      type = lib.types.attrs;
+      default = pkgs;
+      description = "The package set to use for PHP";
     };
     dbSocket = lib.mkOption {
       type = lib.types.str;

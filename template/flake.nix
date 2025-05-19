@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-php74.url = "github:NixOS/nixpkgs/6e3a86f2f73a466656a401302d3ece26fba401d9";
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
@@ -19,8 +20,10 @@
         inputs.process-compose-flake.flakeModule
       ];
 
-      perSystem = { self', pkgs, config, lib, ...}:
+      perSystem = { self', pkgs, config, lib, system, ...}:
         let
+          # Add nixpkgs-php74 for PHP 7.4 support
+          pkgs-php74 = import inputs.nixpkgs-php74 { inherit system; };
           # Function to read env vars with defaults
           getEnvWithDefault = name: default:
             let
@@ -52,6 +55,8 @@
           domain = getEnvWithDefault "DOMAIN" "${projectName}.ddev.site";
           port = getEnvWithDefault "PORT" "8088";
           phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
+          # Get the appropriate package set based on PHP version
+          phpPkgs = if phpVersion == "php74" then pkgs-php74 else pkgs;
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
           docroot = getEnvWithDefault "DOCROOT" "web";
           # Calculate the relative path from docroot to project root
@@ -66,7 +71,14 @@
 
           inherit (inputs.services-flake.lib) multiService;
 
-          baseConfig ={
+          # Create a final combined pkgs that includes both package sets
+          # This allows us to use either the standard nixpkgs or the php74 version
+          finalPkgs = pkgs // {
+            php74 = pkgs-php74.php74;
+            drush = pkgs-php74.drush;
+          };
+
+          baseConfig = {
             imports = [
               inputs.services-flake.processComposeModules.default
               # (multiService ./.services/caddy.nix)
@@ -97,6 +109,8 @@
               enable = true;
               # Override PHP version:
               phpVersion = phpVersion;
+              # Pass the appropriate package set based on PHP version
+              pkgs = finalPkgs;
               # TODO: This currently should have ${PWD}/ prefixing it, so this is currently wrong.
               dbSocket = dbSocket;
             };
@@ -281,11 +295,21 @@
             (writeScriptBin "refresh-flake" (builtins.readFile ./.services/bin/refresh-flake))
             (writeScriptBin "xdrush" ''
               #!${pkgs.bash}/bin/bash
-              php -d xdebug.mode=debug \
-                -d xdebug.start_with_request=yes \
-                -d xdebug.client_host=localhost \
-                -d xdebug.client_port=9003 \
-                $PROJECT_ROOT/vendor/bin/drush.php "$@"
+              if [ "${phpVersion}" = "php74" ] && [ -e ${finalPkgs.drush or ""}/bin/drush ]; then
+                # Use standalone drush with PHP 7.4
+                php -d xdebug.mode=debug \
+                  -d xdebug.start_with_request=yes \
+                  -d xdebug.client_host=localhost \
+                  -d xdebug.client_port=9003 \
+                  ${finalPkgs.drush}/bin/drush "$@"
+              else
+                # Use vendor/bin/drush.php with other PHP versions
+                php -d xdebug.mode=debug \
+                  -d xdebug.start_with_request=yes \
+                  -d xdebug.client_host=localhost \
+                  -d xdebug.client_port=9003 \
+                  $PROJECT_ROOT/vendor/bin/drush.php "$@"
+              fi
             '')
             (writeScriptBin "?" ''
               #!${pkgs.bash}/bin/bash
