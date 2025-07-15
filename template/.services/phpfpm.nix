@@ -19,6 +19,7 @@ let
 
     extraConfig = ''
       memory_limit = 512M
+      max_execution_time = ${toString config.phpTimeout}
       display_errors = On
       error_reporting = E_ALL
       xdebug.mode = debug
@@ -91,6 +92,16 @@ in
       type = lib.types.str;
       default = "data/db/mysql.sock";
       description = "The MySQL socket path";
+    };
+    extraPhpExtensions = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = [];
+      description = "Additional PHP extensions to include";
+    };
+    phpTimeout = lib.mkOption {
+      type = lib.types.int;
+      default = 60;
+      description = "PHP max execution time in seconds";
     };
   };
 

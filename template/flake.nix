@@ -58,6 +58,7 @@
           # Get the appropriate package set based on PHP version
           phpPkgs = if phpVersion == "php74" then pkgs-php74 else pkgs;
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
+          phpTimeout = lib.strings.toInt (getEnvWithDefault "PHP_TIMEOUT" "60");
           docroot = getEnvWithDefault "DOCROOT" "web";
           # Calculate the relative path from docroot to project root
           projectRoot =
@@ -113,6 +114,10 @@
               pkgs = finalPkgs;
               # TODO: This currently should have ${PWD}/ prefixing it, so this is currently wrong.
               dbSocket = dbSocket;
+              # Pass extra PHP extensions from local extensions
+              extraPhpExtensions = localExtensions.extraPhpExtensions or [];
+              # Set PHP timeout
+              phpTimeout = phpTimeout;
             };
             # Create log dir
             settings.processes.setupNginx = {
