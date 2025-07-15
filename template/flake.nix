@@ -8,11 +8,6 @@
     systems.url = "github:nix-systems/default";
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
     services-flake.url = "github:juspay/services-flake";
-    # Optional local extensions - looks for ./local-extensions directory
-    local-extensions = {
-      url = "path:./local-extensions";
-      flake = false;
-    };
   };
 
   outputs = inputs:
@@ -32,8 +27,8 @@
           
           # Load local extensions if available
           localExtensions = 
-            if inputs ? local-extensions && builtins.pathExists (inputs.local-extensions + "/extensions.nix")
-            then import (inputs.local-extensions + "/extensions.nix") { inherit pkgs lib system; }
+            if builtins.pathExists ./nix/local-extensions.nix
+            then import ./nix/local-extensions.nix { inherit pkgs lib system; }
             else {
               extraPhpExtensions = [];
               extraNixPackages = [];

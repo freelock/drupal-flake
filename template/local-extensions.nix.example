@@ -1,0 +1,59 @@
+# Example local extensions file
+# To use: 
+# 1. Create a 'nix' directory in your project root
+# 2. Copy this file to nix/local-extensions.nix
+# 3. Customize the packages below as needed
+# 4. The refresh-flake script will not touch the nix directory
+
+{ pkgs, lib, system }:
+
+{
+  # Additional PHP extensions to include in PHP-FPM
+  extraPhpExtensions = [
+    # Example: add Redis extension
+    # pkgs.php83Extensions.redis
+    # pkgs.php83Extensions.memcached
+  ];
+  
+  # Additional Nix packages to include in the dev shell
+  extraNixPackages = with pkgs; [
+    # Example: add Node.js and development tools
+    # nodejs_20
+    # yarn
+    # git
+    # curl
+  ];
+  
+  # Custom tools/scripts to include in the dev shell
+  # This is where you can include tools from your pipelines repo
+  customTools = with pkgs; [
+    # Example: include Node.js scripts from git.freelock.com/freelock/pipelines
+    # You can reference the repo as a flake input or copy scripts locally
+    
+    # Option 1: Simple script wrapper
+    # (writeScriptBin "my-pipeline-tool" ''
+    #   #!${bash}/bin/bash
+    #   ${nodejs_20}/bin/node /path/to/your/script.js "$@"
+    # '')
+    
+    # Option 2: Full project derivation
+    # (stdenv.mkDerivation {
+    #   name = "pipeline-tools";
+    #   src = fetchgit {
+    #     url = "https://git.freelock.com/freelock/pipelines";
+    #     rev = "main";
+    #     sha256 = "...";
+    #   };
+    #   buildInputs = [ nodejs_20 ];
+    #   installPhase = ''
+    #     mkdir -p $out/bin
+    #     cp -r . $out/lib/pipeline-tools
+    #     # Create wrapper scripts for each tool
+    #     for script in *.js; do
+    #       makeWrapper ${nodejs_20}/bin/node $out/bin/''${script%.js} \
+    #         --add-flags "$out/lib/pipeline-tools/$script"
+    #     done
+    #   '';
+    # })
+  ];
+}
