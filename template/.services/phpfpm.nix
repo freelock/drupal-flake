@@ -14,7 +14,7 @@ let
       xsl
       xdebug
       zip
-    ]);
+    ] ++ (config.extraPhpExtensions or []));
 
 
     extraConfig = ''

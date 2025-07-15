@@ -8,6 +8,11 @@
     systems.url = "github:nix-systems/default";
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
     services-flake.url = "github:juspay/services-flake";
+    # Optional local extensions - looks for ./local-extensions directory
+    local-extensions = {
+      url = "path:./local-extensions";
+      flake = false;
+    };
   };
 
   outputs = inputs:
@@ -24,6 +29,17 @@
         let
           # Add nixpkgs-php74 for PHP 7.4 support
           pkgs-php74 = import inputs.nixpkgs-php74 { inherit system; };
+          
+          # Load local extensions if available
+          localExtensions = 
+            if inputs ? local-extensions && builtins.pathExists (inputs.local-extensions + "/extensions.nix")
+            then import (inputs.local-extensions + "/extensions.nix") { inherit pkgs lib system; }
+            else {
+              extraPhpExtensions = [];
+              extraNixPackages = [];
+              customTools = [];
+            };
+          
           # Function to read env vars with defaults
           getEnvWithDefault = name: default:
             let
@@ -331,7 +347,7 @@
               echo ""
               echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
             '')
-          ];
+          ] ++ (localExtensions.extraNixPackages or []) ++ (localExtensions.customTools or []);
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
 
           shellHook = ''
