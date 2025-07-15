@@ -22,13 +22,8 @@ let
       max_execution_time = ${toString config.phpTimeout}
       display_errors = On
       error_reporting = E_ALL
-      xdebug.mode = debug
-      xdebug.start_with_request = trigger
-      xdebug.client_host = localhost
-      xdebug.client_port = 9003
-      xdebug.discover_client_host = yes
-      xdebug.max_nesting_level = 512
-      xdebug.log = /tmp/xdebug.log
+      ; Xdebug disabled by default - CLI will stay off, php-fpm enables it below
+      xdebug.mode = off
       # Disable socket override until can find a better way to do this
       # mysqli.default_socket = ${config.dbSocket}
     '';
@@ -69,6 +64,16 @@ let
     pm.start_servers = 2
     pm.min_spare_servers = 1
     pm.max_spare_servers = 3
+    ; Enable xdebug for web requests only
+    php_admin_value[xdebug.mode] = debug,profile
+    php_admin_value[xdebug.start_with_request] = trigger
+    php_admin_value[xdebug.client_host] = localhost
+    php_admin_value[xdebug.client_port] = 9003
+    php_admin_value[xdebug.discover_client_host] = yes
+    php_admin_value[xdebug.max_nesting_level] = 512
+    php_admin_value[xdebug.log] = ${config.dataDir}/logs/xdebug.log
+    php_admin_value[xdebug.output_dir] = ${config.dataDir}/xdebug_profiles
+    php_admin_value[xdebug.profiler_output_name] = cachegrind.out.%t.%p
   '';
 in
 {
@@ -111,6 +116,10 @@ in
         processes."${name}" = {
           command = ''
             mkdir -p ${config.dataDir}
+            mkdir -p ${config.dataDir}/logs
+            mkdir -p ${config.dataDir}/xdebug_profiles
+            touch ${config.dataDir}/logs/xdebug.log
+            chmod 664 ${config.dataDir}/logs/xdebug.log
             ${phpEnv}/bin/php-fpm --nodaemonize -p ${config.dataDir} --fpm-config ${phpfpmConfig}
           '';
 	        # To support project browser/auto updates, need path to composer and rsync.

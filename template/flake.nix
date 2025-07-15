@@ -316,6 +316,10 @@
             (writeScriptBin "refresh-flake" (builtins.readFile ./.services/bin/refresh-flake))
             (writeScriptBin "xdrush" ''
               #!${pkgs.bash}/bin/bash
+              # Create logs directory if it doesn't exist
+              mkdir -p $PROJECT_ROOT/data/logs
+              mkdir -p $PROJECT_ROOT/data/xdebug_profiles
+              
               if [ "${phpVersion}" = "php74" ] && [ -e ${finalPkgs.drush or ""}/bin/drush ]; then
                 # Use standalone drush with PHP 7.4
                 php -d xdebug.mode=debug \
