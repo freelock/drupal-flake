@@ -331,6 +331,22 @@
                   $PROJECT_ROOT/vendor/bin/drush.php "$@"
               fi
             '')
+            (writeScriptBin "xdebug-profile-on" ''
+              #!${pkgs.bash}/bin/bash
+              echo "⚠️  XDebug profiling requires manual configuration."
+              echo "   To enable profiling, you can:"
+              echo "   1. Add ?XDEBUG_PROFILE=1 to your URL for individual requests"
+              echo "   2. Set cookie XDEBUG_PROFILE=1 in your browser"
+              echo "   3. Use environment variable: export XDEBUG_MODE=debug,profile"
+              echo ""
+              echo "   Profiles will be saved to: data/xdebug_profiles/"
+              echo "   Current xdebug.mode: debug (for debugging)"
+            '')
+            (writeScriptBin "xdebug-profile-off" ''
+              #!${pkgs.bash}/bin/bash
+              echo "ℹ️  XDebug profiling is controlled per-request."
+              echo "   Remove ?XDEBUG_PROFILE=1 from URLs or XDEBUG_PROFILE cookie to disable."
+            '')
             (writeScriptBin "?" ''
               #!${pkgs.bash}/bin/bash
               echo -e "\n\033[1;34m${projectName} Development Commands:\033[0m"
@@ -340,6 +356,8 @@
               echo -e "\033[1;32mstart-demo\033[0m              Set up a new Drupal site, or start servers"
               echo -e "\033[1;32mstart-config\033[0m            Start servers and install Drupal from config - CLOBBERS EXISTING DATABASE"
               echo -e "\033[1;32mxdrush\033[0m                  Run Drush with Xdebug enabled"
+              echo -e "\033[1;32mxdebug-profile-on\033[0m       Enable XDebug profiling (requires restart)"
+              echo -e "\033[1;32mxdebug-profile-off\033[0m      Disable XDebug profiling (requires restart)"
               echo -e "\033[1;32mnix-settings\033[0m            Add/include settings.nix.php (done automatically with start)"
               echo -e "\033[1;32mrefresh-flake [path]\033[0m    Refresh the flake from Drupal.org or [path]"
               echo -e "\033[1;32m?\033[0m                       Show this help message"
