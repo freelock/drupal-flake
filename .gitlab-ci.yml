@@ -1,0 +1,173 @@
+# GitLab CI configuration for Drupal Flake Template
+# Tests the Nix flake template functionality and XDebug configuration
+
+workflow:
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == 'pipeline'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == 'web'
+
+variables:
+  # Use NixOS image with Nix pre-installed
+  NIXOS_IMAGE: "nixos/nix:latest"
+  # Disable GitLab's default git strategy to use shallow clones
+  GIT_DEPTH: 50
+  # Set the main branch for this project
+  MAIN_BRANCH: "1.0.x"
+
+# Global before_script to set up Nix environment
+before_script:
+  - echo "Setting up Nix environment..."
+  - nix --version
+  - nix-env --version
+  # Enable flakes and nix-command experimental features
+  - mkdir -p ~/.config/nix
+  - echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+  # Add binary cache for faster builds
+  - echo "substituters = https://cache.nixos.org https://nix-community.cachix.org" >> ~/.config/nix/nix.conf
+  - echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=" >> ~/.config/nix/nix.conf
+
+stages:
+  - validate
+  - test-functionality
+  - test-integration
+
+# Stage 1: Basic validation
+validate-flake:
+  stage: validate
+  image: $NIXOS_IMAGE
+  script:
+    - echo "🔍 Validating flake configuration..."
+    - nix flake check --no-build
+    - echo "✅ Flake validation passed"
+  rules:
+    - changes:
+        - "*.nix"
+        - "template/**/*.nix"
+        - "flake.lock"
+        - "template/flake.lock"
+
+validate-template:
+  stage: validate
+  image: $NIXOS_IMAGE
+  script:
+    - echo "🔍 Validating template structure..."
+    - nix flake show
+    - echo "✅ Template structure validation passed"
+  rules:
+    - changes:
+        - "template/**/*"
+
+# Stage 2: Functionality tests
+test-demo-functionality:
+  stage: test-functionality
+  image: $NIXOS_IMAGE
+  services:
+    # Add docker service for containerized testing
+    - docker:dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - echo "🧪 Running demo functionality tests..."
+    - chmod +x tests/test-demo.sh
+    - ./tests/test-demo.sh
+  artifacts:
+    when: always
+    reports:
+      junit: test-results.xml
+    paths:
+      - test-logs/
+    expire_in: 1 week
+  timeout: 30m
+  rules:
+    - changes:
+        - "template/**/*"
+        - "tests/test-demo.sh"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test-xdebug-functionality:
+  stage: test-functionality
+  image: $NIXOS_IMAGE
+  services:
+    - docker:dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - echo "🧪 Running XDebug functionality tests..."
+    - chmod +x tests/test-xdebug.sh
+    - ./tests/test-xdebug.sh
+  artifacts:
+    when: always
+    paths:
+      - test-logs/
+    expire_in: 1 week
+  timeout: 20m
+  rules:
+    - changes:
+        - "template/**/*.nix"
+        - "tests/test-xdebug.sh"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Stage 3: Integration tests
+test-multiple-php-versions:
+  stage: test-integration
+  image: $NIXOS_IMAGE
+  services:
+    - docker:dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  parallel:
+    matrix:
+      - PHP_VERSION: ["php81", "php82", "php83", "php84"]
+  script:
+    - echo "🧪 Testing PHP version $PHP_VERSION..."
+    - mkdir -p integration-test-$PHP_VERSION
+    - cd integration-test-$PHP_VERSION
+    - nix flake init -t ../template
+    # Override PHP version in flake.nix
+    - sed -i "s/php83/$PHP_VERSION/g" flake.nix
+    - echo "📋 Testing flake check with $PHP_VERSION..."
+    - timeout 300 nix flake check --no-build
+    - echo "✅ $PHP_VERSION integration test passed"
+  artifacts:
+    when: on_failure
+    paths:
+      - integration-test-*/
+    expire_in: 1 week
+  timeout: 15m
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == 'schedule'
+  allow_failure: true
+
+# Nightly comprehensive test
+nightly-full-test:
+  stage: test-integration
+  image: $NIXOS_IMAGE
+  services:
+    - docker:dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - echo "🌙 Running comprehensive nightly tests..."
+    - ./tests/test-demo.sh
+    - ./tests/test-xdebug.sh
+    - echo "✅ Nightly tests completed"
+  artifacts:
+    when: always
+    paths:
+      - test-logs/
+    expire_in: 1 month
+  timeout: 45m
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'schedule'
+  allow_failure: false
