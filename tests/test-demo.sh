@@ -12,7 +12,7 @@ mkdir -p test-logs
 # Set up test environment
 export TEST_PROJECT_NAME="test-project"
 export TEST_URL="http://test-project.ddev.site:8088"
-export TEST_TIMEOUT=300  # 5 minutes timeout
+export TEST_TIMEOUT=600  # 10 minutes timeout for CI
 
 # Ensure we have a clean git state for template testing
 if [[ -n $(git status --porcelain) ]]; then

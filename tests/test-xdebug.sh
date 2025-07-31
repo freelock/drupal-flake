@@ -12,7 +12,7 @@ mkdir -p test-logs
 # Set up test environment
 export TEST_PROJECT_NAME="xdebug-test-project"
 export TEST_URL="http://xdebug-test-project.ddev.site:8088"
-export TEST_TIMEOUT=180  # 3 minutes timeout
+export TEST_TIMEOUT=600  # 10 minutes timeout for CI
 
 # Ensure we have a clean git state for template testing
 if [[ -n $(git status --porcelain) ]]; then
@@ -116,6 +116,12 @@ timeout $TEST_TIMEOUT bash -c '
     
     # Wait for services to be ready
     for i in {1..30}; do
+        # Try to get more info about what'\''s happening
+        if [ $((i % 5)) -eq 0 ]; then
+            echo "   Debug: Checking process-compose status..."
+            nix run .#default -- ps 2>/dev/null || echo "   Process-compose not responding"
+        fi
+        
         if curl -s "'$TEST_URL'" >/dev/null 2>&1; then
             echo "✅ Environment started for XDebug test"
             
@@ -185,7 +191,7 @@ timeout $TEST_TIMEOUT bash -c '
             echo "🎉 All XDebug tests passed!"
             exit 0
         fi
-        echo "   Attempt $i/18: Environment not ready yet..."
+        echo "   Attempt $i/30: Environment not ready yet..."
         sleep 10
     done
     

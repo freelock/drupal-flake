@@ -70,6 +70,11 @@ test-demo-functionality:
   variables:
     DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
+    # Increase resource limits for CI
+    KUBERNETES_CPU_REQUEST: "2"
+    KUBERNETES_CPU_LIMIT: "4"
+    KUBERNETES_MEMORY_REQUEST: "4Gi"
+    KUBERNETES_MEMORY_LIMIT: "8Gi"
   script:
     - echo "🧪 Running demo functionality tests..."
     - chmod +x tests/test-demo.sh
@@ -97,6 +102,11 @@ test-xdebug-functionality:
   variables:
     DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
+    # Increase resource limits for CI
+    KUBERNETES_CPU_REQUEST: "2"
+    KUBERNETES_CPU_LIMIT: "4"
+    KUBERNETES_MEMORY_REQUEST: "4Gi"
+    KUBERNETES_MEMORY_LIMIT: "8Gi"
   script:
     - echo "🧪 Running XDebug functionality tests..."
     - chmod +x tests/test-xdebug.sh
