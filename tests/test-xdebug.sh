@@ -108,7 +108,8 @@ echo "⏳ Starting default environment for XDebug test..."
 timeout $TEST_TIMEOUT bash -c '
     # Start process-compose in detached mode (nix run will exit after starting)
     echo "🚀 Starting process-compose in detached mode..."
-    nix run .#default -- --detached
+    # Ensure process-compose is available in the environment
+    nix develop --command bash -c "nix run .#default -- --detached"
     
     # Give it more time to start all services
     echo "⏳ Waiting for services to initialize..."
