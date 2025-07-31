@@ -77,6 +77,9 @@ test-demo-functionality:
     KUBERNETES_MEMORY_LIMIT: "8Gi"
   script:
     - echo "🧪 Running demo functionality tests..."
+    # Install process-compose in the CI environment
+    - nix profile install nixpkgs#process-compose
+    - which process-compose || echo "process-compose not found after install"
     - chmod +x tests/test-demo.sh
     - ./tests/test-demo.sh
   artifacts:
@@ -109,6 +112,9 @@ test-xdebug-functionality:
     KUBERNETES_MEMORY_LIMIT: "8Gi"
   script:
     - echo "🧪 Running XDebug functionality tests..."
+    # Install process-compose in the CI environment
+    - nix profile install nixpkgs#process-compose
+    - which process-compose || echo "process-compose not found after install"
     - chmod +x tests/test-xdebug.sh
     - ./tests/test-xdebug.sh
   artifacts:

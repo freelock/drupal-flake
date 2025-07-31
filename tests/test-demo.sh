@@ -76,8 +76,12 @@ echo "✅ Template initialization passed"
 echo "📋 Test 3: Testing demo environment startup..."
 # Start demo in detached mode for testing
 echo "🔨 Starting nix run .#demo in detached mode (this may take several minutes)..."
-# Ensure process-compose is available in the environment
-nix develop --command bash -c "nix run .#demo -- --detached" >demo.log 2>&1
+# Debug: Check if process-compose is available
+echo "Debug: process-compose version: $(process-compose --version 2>/dev/null || echo not found)"
+echo "Debug: process-compose location: $(which process-compose 2>/dev/null || echo not found)"
+
+# Start the services
+nix run .#demo -- --detached >demo.log 2>&1
 
 # Give it more time to start all services
 echo "⏳ Waiting for services to initialize..."
