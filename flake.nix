@@ -3,13 +3,14 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-php74.url = "github:NixOS/nixpkgs/6e3a86f2f73a466656a401302d3ece26fba401d9";
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
-    services-flake.url = "github:juspay/services-flake";
+    services-flake.url = "github:juspay/services-flake/8bc6dff1c0d82842b28e3906ac4645a3c3a49dbe";
   };
 
-  outputs = inputs @ { self, nixpkgs, flake-parts, systems, process-compose-flake, services-flake, ... }:
+  outputs = inputs @ { self, nixpkgs, nixpkgs-php74, flake-parts, systems, process-compose-flake, services-flake, ... }:
   let
     templateFlake = import ./template/flake.nix;
     templateOutputs = templateFlake.outputs inputs;

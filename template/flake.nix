@@ -7,7 +7,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
-    services-flake.url = "github:juspay/services-flake";
+    services-flake.url = "github:juspay/services-flake/8bc6dff1c0d82842b28e3906ac4645a3c3a49dbe";
   };
 
   outputs = inputs:
