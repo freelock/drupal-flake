@@ -6,6 +6,9 @@ set -euo pipefail
 
 echo "🧪 Testing nix run .#demo functionality..."
 
+# Create test-logs directory for CI artifacts
+mkdir -p test-logs
+
 # Set up test environment
 export TEST_PROJECT_NAME="test-project"
 export TEST_URL="http://test-project.ddev.site:8088"
@@ -20,9 +23,18 @@ fi
 
 cleanup() {
     echo "🧹 Cleaning up test environment..."
-    pkill -f "php-fpm.*test-project" || true
-    pkill -f "nginx.*test-project" || true
-    pkill -f "mysql.*test-project" || true
+    # Use killall if pkill is not available (e.g., in CI environments)
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -f "php-fpm.*test-project" || true
+        pkill -f "nginx.*test-project" || true
+        pkill -f "mysql.*test-project" || true
+    elif command -v killall >/dev/null 2>&1; then
+        killall -q php-fpm || true
+        killall -q nginx || true
+        killall -q mysqld || true
+    else
+        echo "⚠️  Neither pkill nor killall available, skipping process cleanup"
+    fi
     cd .. 2>/dev/null || true
     # Remove from git staging and filesystem
     git reset test-project/ 2>/dev/null || true
@@ -74,10 +86,25 @@ sleep 5
 echo "⏳ Waiting for services to start..."
 for i in {1..30}; do
     # Check if process-compose is running (the actual service manager)
-    if ! pgrep -f "process-compose" >/dev/null 2>&1; then
+    # Use pgrep if available, otherwise check for nix run processes
+    PROCESS_RUNNING=false
+    if command -v pgrep >/dev/null 2>&1; then
+        if pgrep -f "process-compose" >/dev/null 2>&1; then
+            PROCESS_RUNNING=true
+        fi
+    else
+        # Fallback: check if our background process is still running
+        if kill -0 $DEMO_PID 2>/dev/null; then
+            PROCESS_RUNNING=true
+        fi
+    fi
+    
+    if [ "$PROCESS_RUNNING" = false ]; then
         echo "❌ Process-compose is not running"
         echo "Demo log output:"
         cat demo.log 2>/dev/null || echo "No log file found"
+        # Save logs for CI artifacts
+        cp demo.log test-logs/demo-failure.log 2>/dev/null || true
         exit 1
     fi
     
@@ -97,6 +124,8 @@ done
 echo "❌ Demo environment failed to start within timeout"
 echo "Demo log output:"
 cat demo.log 2>/dev/null || echo "No log file found"
+# Save logs for CI artifacts
+cp demo.log test-logs/demo-timeout.log 2>/dev/null || true
 
 # Stop the detached process-compose
 nix run .#demo -- down 2>/dev/null || true

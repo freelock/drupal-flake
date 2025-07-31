@@ -6,7 +6,7 @@ workflow:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == 'pipeline'
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
     - if: $CI_PIPELINE_SOURCE == 'web'
 
 variables:
@@ -87,7 +87,7 @@ test-demo-functionality:
         - "template/**/*"
         - "tests/test-demo.sh"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
 
 test-xdebug-functionality:
   stage: test-functionality
@@ -112,7 +112,7 @@ test-xdebug-functionality:
         - "template/**/*.nix"
         - "tests/test-xdebug.sh"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
 
 # Stage 3: Integration tests
 test-multiple-php-versions:
@@ -144,7 +144,7 @@ test-multiple-php-versions:
   timeout: 15m
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
     - if: $CI_PIPELINE_SOURCE == 'schedule'
   allow_failure: true
 

@@ -6,6 +6,9 @@ set -euo pipefail
 
 echo "🧪 Testing XDebug functionality..."
 
+# Create test-logs directory for CI artifacts
+mkdir -p test-logs
+
 # Set up test environment
 export TEST_PROJECT_NAME="xdebug-test-project"
 export TEST_URL="http://xdebug-test-project.ddev.site:8088"
@@ -20,9 +23,18 @@ fi
 
 cleanup() {
     echo "🧹 Cleaning up XDebug test environment..."
-    pkill -f "php-fpm.*xdebug-test" || true
-    pkill -f "nginx.*xdebug-test" || true
-    pkill -f "mysql.*xdebug-test" || true
+    # Use killall if pkill is not available (e.g., in CI environments)
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -f "php-fpm.*xdebug-test" || true
+        pkill -f "nginx.*xdebug-test" || true
+        pkill -f "mysql.*xdebug-test" || true
+    elif command -v killall >/dev/null 2>&1; then
+        killall -q php-fpm || true
+        killall -q nginx || true
+        killall -q mysqld || true
+    else
+        echo "⚠️  Neither pkill nor killall available, skipping process cleanup"
+    fi
     cd .. 2>/dev/null || true
     # Remove from git staging and filesystem
     git reset xdebug-test-project/ 2>/dev/null || true

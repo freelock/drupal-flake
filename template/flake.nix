@@ -214,7 +214,9 @@
             };
 
 
-            # Open browser to the domain
+          } 
+          // lib.optionalAttrs (builtins.getEnv "CI" == "" && builtins.getEnv "GITLAB_CI" == "" && builtins.getEnv "GITHUB_ACTIONS" == "") {
+            # Open browser to the domain (only if not in CI environment)
             settings.processes.open-browser = {
               command = ''
                 sleep 2
