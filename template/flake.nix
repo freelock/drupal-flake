@@ -228,6 +228,9 @@
       {
         process-compose."default" = { config, ...}: baseConfig;
 
+        # Detached target - same as default but runs in background
+        process-compose."detached" = { config, ...}: baseConfig;
+
         # New demo target to install Drupal
         process-compose."demo" = { config, ...}:
           lib.recursiveUpdate baseConfig {
@@ -305,10 +308,49 @@
               #!${pkgs.bash}/bin/bash
               nix run
             '')
+            (pkgs.writeScriptBin "start-detached" ''
+              #!${pkgs.bash}/bin/bash
+              echo "🚀 Starting ${projectName} development environment in detached mode..."
+              
+              # Use setsid to properly detach the process while keeping server functionality
+              mkdir -p ./data
+              setsid nix run . -- --tui=false </dev/null >./data/process-compose.log 2>&1 &
+              COMPOSE_PID=$!
+              sleep 5
+              
+              # Check if process is still running
+              if kill -0 $COMPOSE_PID 2>/dev/null; then
+                echo "✅ Development environment started in background (PID: $COMPOSE_PID)"
+                echo "   Use 'stop-detached' to stop the services"
+                echo "   View logs: tail -f ./data/process-compose.log"
+                echo "   Check status: pgrep -f ${projectName}"
+                echo "   Site URL: http://${domain}:${port}"
+                echo "   Logs: ./data/process-compose.log"
+              else
+                echo "❌ Failed to start development environment"
+                echo "   Check logs: ./data/process-compose.log"
+                exit 1
+              fi
+            '')
+            (pkgs.writeScriptBin "stop-detached" ''
+              #!${pkgs.bash}/bin/bash
+              echo "🛑 Stopping ${projectName} development environment..."
+              if pgrep -f "process-compose" >/dev/null 2>&1 && pgrep -f "${projectName}" >/dev/null 2>&1; then
+                # Kill process-compose and project services
+                pkill -f "process-compose" || true
+                pkill -f "${projectName}" || true
+                echo "✅ Development environment stopped"
+              else
+                echo "ℹ️  Development environment is not running"
+              fi
+            '')
           ];
           buildInputs = with pkgs; [
+            # Add process-compose for attach command
+            process-compose
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
             (writeScriptBin "refresh-flake" (builtins.readFile ./.services/bin/refresh-flake))
+            (writeScriptBin "setup-starship-prompt" (builtins.readFile ./.services/bin/setup-starship-prompt))
             (writeScriptBin "xdrush" ''
               #!${pkgs.bash}/bin/bash
               # Create logs directory if it doesn't exist
@@ -352,6 +394,8 @@
               echo -e "\n\033[1;34m${projectName} Development Commands:\033[0m"
               echo -e "\033[1;32mnix run\033[0m                 Start the development environment"
               echo -e "\033[1;32mstart\033[0m                   Start the development environment"
+              echo -e "\033[1;32mstart-detached\033[0m          Start the development environment in background"
+              echo -e "\033[1;32mstop-detached\033[0m           Stop the detached development environment"
               echo -e "\033[1;32mnix run .#demo\033[0m          Set up a new Drupal site, or start servers"
               echo -e "\033[1;32mstart-demo\033[0m              Set up a new Drupal site, or start servers"
               echo -e "\033[1;32mstart-config\033[0m            Start servers and install Drupal from config - CLOBBERS EXISTING DATABASE"
@@ -360,6 +404,7 @@
               echo -e "\033[1;32mxdebug-profile-off\033[0m      Disable XDebug profiling (requires restart)"
               echo -e "\033[1;32mnix-settings\033[0m            Add/include settings.nix.php (done automatically with start)"
               echo -e "\033[1;32mrefresh-flake [path]\033[0m    Refresh the flake from Drupal.org or [path]"
+              echo -e "\033[1;32msetup-starship-prompt\033[0m   Set up starship prompt to show process-compose status"
               echo -e "\033[1;32m?\033[0m                       Show this help message"
               echo ""
               echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
@@ -370,6 +415,7 @@
           shellHook = ''
             export PROJECT_ROOT="$PWD"
             export PROJECT_ROOT_REL="${projectRoot}"
+            export PROJECT_NAME="${projectName}"
             export PATH="$PWD/vendor/bin:$PATH"
             export DB_SOCKET="$PWD/${dbSocket}"
             echo "Entering development environment for ${projectName}"

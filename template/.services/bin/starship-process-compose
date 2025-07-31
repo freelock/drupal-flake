@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Simple PROJECT_NAME display for starship
+if [ -n "${PROJECT_NAME:-}" ]; then
+    echo "${PROJECT_NAME}"
+fi
+# Starship custom module for process-compose status
+# Usage: Add this to your starship.toml:
+#
+# [custom.process_compose]
+# command = "./.services/bin/starship-process-compose"
+# when = "test -f flake.nix"
+# format = "[$output]($style)"
+# style = "bold green"
+
+# Check if process-compose is running for this project
+if [ -n "${PROJECT_NAME:-}" ]; then
+    PROJECT_NAME="${PROJECT_NAME}"
+else
+    # Try to get from .env file if it exists
+    if [ -f ".env" ] && grep -q "PROJECT_NAME=" ".env"; then
+        PROJECT_NAME=$(grep "PROJECT_NAME=" ".env" | cut -d'=' -f2)
+    else
+        PROJECT_NAME=$(basename "$(pwd)")
+    fi
+fi
+
+# Fast check - just look for process-compose running
+if pgrep -f "process-compose" >/dev/null 2>&1; then
+    echo "💧❄️ ${PROJECT_NAME}"
+else
+    # Don't output anything if not running (cleaner prompt)
+    exit 1
+fi

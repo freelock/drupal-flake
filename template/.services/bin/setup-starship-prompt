@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Script to help set up starship prompt integration
+
+echo "🌟 Setting up Starship prompt integration for process-compose status"
+echo ""
+
+STARSHIP_CONFIG="$HOME/.config/starship.toml"
+
+# Check if starship config exists
+if [ ! -f "$STARSHIP_CONFIG" ]; then
+    echo "Creating starship config at $STARSHIP_CONFIG"
+    mkdir -p "$(dirname "$STARSHIP_CONFIG")"
+    touch "$STARSHIP_CONFIG"
+fi
+
+# Check if our custom module already exists
+if grep -q "\[custom\.project_name\]" "$STARSHIP_CONFIG"; then
+    echo "✅ PROJECT_NAME custom module already exists in starship config"
+else
+    echo "📝 Adding PROJECT_NAME custom module to starship config..."
+    
+    cat >> "$STARSHIP_CONFIG" << 'EOF'
+
+# Add custom modules to format if not already present
+format = "$all$custom$character"
+
+# PROJECT_NAME indicator  
+[custom.project_name]
+command = '[ -n "$PROJECT_NAME" ] && echo "$PROJECT_NAME"'
+format = "💧❄️ [$output]($style) "
+style = "bold green"
+EOF
+    
+    echo "✅ Added PROJECT_NAME module to $STARSHIP_CONFIG"
+fi
+
+echo ""
+echo "🎯 Setup complete! Your prompt will now show:"
+echo "   💧❄️ project-name  when in nix development environment"
+echo "   (nothing)        when outside nix development environment"
+echo ""
+echo "💡 Usage:"
+echo "   start-detached   - Start development environment in background"
+echo "   stop-detached    - Stop development environment"
+echo "   process-compose attach --project-name PROJECT_NAME - Attach to running TUI"
+echo ""
+echo "🔄 Restart your shell or run 'exec fish' to see the changes"
