@@ -106,14 +106,16 @@ echo "✅ Template initialized for XDebug test with PHP files ready"
 # Start default environment (now has minimal Drupal structure)
 echo "⏳ Starting default environment for XDebug test..."
 timeout $TEST_TIMEOUT bash -c '
-    nix run .#default -- --detached &
-    DEMO_PID=$!
+    # Start process-compose in detached mode (nix run will exit after starting)
+    echo "🚀 Starting process-compose in detached mode..."
+    nix run .#default -- --detached
     
-    # Give it a moment to start
-    sleep 5
+    # Give it more time to start all services
+    echo "⏳ Waiting for services to initialize..."
+    sleep 15
     
     # Wait for services to be ready
-    for i in {1..18}; do
+    for i in {1..30}; do
         if curl -s "'$TEST_URL'" >/dev/null 2>&1; then
             echo "✅ Environment started for XDebug test"
             
@@ -127,7 +129,6 @@ timeout $TEST_TIMEOUT bash -c '
             else
                 echo "❌ XDebug extension not loaded in CLI"
                 nix run .#default -- down 2>/dev/null || true
-                kill $DEMO_PID 2>/dev/null || true
                 exit 1
             fi
             
@@ -151,7 +152,6 @@ timeout $TEST_TIMEOUT bash -c '
                 else
                     echo "❌ XDebug not in debug mode"
                     echo "Response: $XDEBUG_RESPONSE"
-                    kill $DEMO_PID 2>/dev/null || true
                     exit 1
                 fi
                 
@@ -159,7 +159,6 @@ timeout $TEST_TIMEOUT bash -c '
                     echo "✅ XDebug start_with_request is set to trigger"
                 else
                     echo "❌ XDebug start_with_request not set to trigger"
-                    kill $DEMO_PID 2>/dev/null || true
                     exit 1
                 fi
                 
@@ -167,7 +166,6 @@ timeout $TEST_TIMEOUT bash -c '
                 echo "❌ XDebug extension not loaded in web environment"
                 echo "Response: $XDEBUG_RESPONSE"
                 nix run .#default -- down 2>/dev/null || true
-                kill $DEMO_PID 2>/dev/null || true
                 exit 1
             fi
             
@@ -179,13 +177,11 @@ timeout $TEST_TIMEOUT bash -c '
             else
                 echo "❌ XDebug trigger mechanism failed"
                 nix run .#default -- down 2>/dev/null || true
-                kill $DEMO_PID 2>/dev/null || true
                 exit 1
             fi
             
             # Stop the detached process-compose
             nix run .#default -- down 2>/dev/null || true
-            kill $DEMO_PID 2>/dev/null || true
             echo "🎉 All XDebug tests passed!"
             exit 0
         fi
@@ -195,7 +191,6 @@ timeout $TEST_TIMEOUT bash -c '
     
     echo "❌ Environment failed to start within timeout"
     nix run .#default -- down 2>/dev/null || true
-    kill $DEMO_PID 2>/dev/null || true
     exit 1
 ' || {
     echo "❌ XDebug test failed"

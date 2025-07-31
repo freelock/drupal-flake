@@ -76,38 +76,15 @@ echo "✅ Template initialization passed"
 echo "📋 Test 3: Testing demo environment startup..."
 # Start demo in detached mode for testing
 echo "🔨 Starting nix run .#demo in detached mode (this may take several minutes)..."
-nohup nix run .#demo -- --detached </dev/null >demo.log 2>&1 &
-DEMO_PID=$!
+nix run .#demo -- --detached >demo.log 2>&1
 
-# Give it a moment to start process-compose
-sleep 5
+# Give it more time to start all services
+echo "⏳ Waiting for services to initialize..."
+sleep 15
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
 for i in {1..30}; do
-    # Check if process-compose is running (the actual service manager)
-    # Use pgrep if available, otherwise check for nix run processes
-    PROCESS_RUNNING=false
-    if command -v pgrep >/dev/null 2>&1; then
-        if pgrep -f "process-compose" >/dev/null 2>&1; then
-            PROCESS_RUNNING=true
-        fi
-    else
-        # Fallback: check if our background process is still running
-        if kill -0 $DEMO_PID 2>/dev/null; then
-            PROCESS_RUNNING=true
-        fi
-    fi
-    
-    if [ "$PROCESS_RUNNING" = false ]; then
-        echo "❌ Process-compose is not running"
-        echo "Demo log output:"
-        cat demo.log 2>/dev/null || echo "No log file found"
-        # Save logs for CI artifacts
-        cp demo.log test-logs/demo-failure.log 2>/dev/null || true
-        exit 1
-    fi
-    
     # Check if HTTP service is available
     if curl -s "$TEST_URL" >/dev/null 2>&1; then
         echo "✅ Demo environment started successfully at $TEST_URL"
@@ -129,7 +106,6 @@ cp demo.log test-logs/demo-timeout.log 2>/dev/null || true
 
 # Stop the detached process-compose
 nix run .#demo -- down 2>/dev/null || true
-kill $DEMO_PID 2>/dev/null || true
 exit 1
 
 echo "🎉 All demo tests passed!"
