@@ -115,16 +115,30 @@ timeout $TEST_TIMEOUT bash -c '
     # Start the services
     nix run .#default -- --detached
     
+    # Immediate debug: check what happened
+    echo "   Debug: Process-compose started, checking immediate status..."
+    ps aux | grep -v grep | grep process-compose || echo "   No process-compose found immediately after start"
+    process-compose ps 2>/dev/null || echo "   Process-compose ps not responding immediately"
+    
     # Give it more time to start all services
     echo "⏳ Waiting for services to initialize..."
     sleep 15
     
     # Wait for services to be ready
     for i in {1..30}; do
-        # Try to get more info about what'\''s happening
+        # Try to get more info about what is happening
         if [ $((i % 5)) -eq 0 ]; then
             echo "   Debug: Checking process-compose status..."
-            nix run .#default -- ps 2>/dev/null || echo "   Process-compose not responding"
+            # Try multiple ways to check process-compose
+            process-compose ps 2>/dev/null || echo "   Direct process-compose ps failed" 
+            nix run .#default -- ps 2>/dev/null || echo "   Nix run ps failed"
+            
+            # Check if any process-compose processes are running
+            ps aux | grep -v grep | grep process-compose || echo "   No process-compose processes found"
+            
+            # Check basic connectivity with more detail
+            echo "   Testing connectivity to $TEST_URL"
+            curl -v "$TEST_URL" 2>&1 | head -10 || echo "   Curl test failed"
         fi
         
         if curl -s "'$TEST_URL'" >/dev/null 2>&1; then
