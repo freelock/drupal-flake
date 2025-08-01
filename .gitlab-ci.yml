@@ -78,7 +78,7 @@ test-demo-functionality:
   script:
     - echo "🧪 Running demo functionality tests..."
     # Install process-compose in the CI environment
-    - nix profile install nixpkgs#process-compose
+    - nix profile install nixpkgs#process-compose nixpkgs#procps
     - which process-compose || echo "process-compose not found after install"
     - chmod +x tests/test-demo.sh
     - ./tests/test-demo.sh
@@ -113,7 +113,7 @@ test-xdebug-functionality:
   script:
     - echo "🧪 Running XDebug functionality tests..."
     # Install process-compose in the CI environment
-    - nix profile install nixpkgs#process-compose
+    - nix profile install nixpkgs#process-compose nixpkgs#procps
     - which process-compose || echo "process-compose not found after install"
     - chmod +x tests/test-xdebug.sh
     - ./tests/test-xdebug.sh
