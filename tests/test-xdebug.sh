@@ -108,40 +108,40 @@ echo "⏳ Starting default environment for XDebug test..."
 timeout $TEST_TIMEOUT bash -c '
     # Start using the new process management tools
     echo "🚀 Starting development environment in detached mode..."
-    
+
     # Enter devShell and start services
     nix develop --command bash <<EOF
         # Set CI environment variables for headless operation
         export CI=true
         export DISPLAY=""
-        
-        echo "Debug: Available commands: \$(which start-detached pc-status pc-stop 2>/dev/null || echo not found)"
-        echo "Debug: TTY check: \$(tty 2>/dev/null || echo 'no tty')"
+
+        echo "Debug: Available commands: \`which start-detached pc-status pc-stop 2>/dev/null || echo not found\`"
+        echo "Debug: TTY check: \`tty 2>/dev/null || echo 'no tty'\`"
         echo "Debug: CI=\$CI, DISPLAY=\$DISPLAY"
-        
+
         # Start services in background (always detached for testing)
         start-detached
-        
-        # Check status immediately  
+
+        # Check status immediately
         echo "   Debug: Checking status after start..."
         pc-status || echo "   pc-status not responding immediately"
 EOF
-    
+
     # Give it more time to start all services
     echo "⏳ Waiting for services to initialize..."
     sleep 15
-    
+
     # Wait for services to be ready
     for i in {1..30}; do
         # Use our process management tools for status checking
         if [ $((i % 5)) -eq 0 ]; then
             echo "   Debug: Attempt $i/30 - Checking service status..."
-            
+
             # Check status using our tools (in devShell context)
             nix develop --command bash <<EOF
                 export CI=true
                 export DISPLAY=""
-                
+
                 if pc-status >/dev/null 2>&1; then
                     echo "   ✅ Services are running"
                     pc-status
@@ -149,20 +149,20 @@ EOF
                     echo "   ⏳ Services not ready yet"
                 fi
 EOF
-            
+
             # Check basic connectivity
             echo "   Testing connectivity to $TEST_URL"
             curl -s "$TEST_URL" >/dev/null 2>&1 && echo "   ✅ HTTP connection successful" || echo "   ❌ HTTP connection failed"
         fi
-        
+
         if curl -s "$TEST_URL" >/dev/null 2>&1; then
             echo "✅ Environment started for XDebug test"
-            
+
             # Test 2: Check XDebug configuration via CLI
             echo "📋 Test 2: Checking XDebug CLI configuration..."
             if nix develop --command php -m | grep -q "xdebug"; then
                 echo "✅ XDebug extension is loaded in CLI"
-                
+
                 # Check XDebug configuration (skip detailed mode check for now)
                 echo "✅ XDebug CLI configuration appears correct"
             else
@@ -170,13 +170,13 @@ EOF
                 nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
                 exit 1
             fi
-            
+
             # Test 3: Check web XDebug config (files already created before startup)
             echo "📋 Test 3: Checking XDebug web configuration..."
-            
+
             # Test XDebug web configuration
             XDEBUG_RESPONSE=$(curl -s "'$TEST_URL'/xdebug-test.php")
-            
+
             # Also try without the leading slash
             if echo "$XDEBUG_RESPONSE" | grep -q "404"; then
                 echo "  Trying alternative URL format..."
@@ -185,7 +185,7 @@ EOF
             fi
             if echo "$XDEBUG_RESPONSE" | grep -q "XDebug loaded: YES"; then
                 echo "✅ XDebug extension is loaded in web environment"
-                
+
                 if echo "$XDEBUG_RESPONSE" | grep -q "XDebug mode: debug"; then
                     echo "✅ XDebug is in debug mode"
                 else
@@ -193,21 +193,21 @@ EOF
                     echo "Response: $XDEBUG_RESPONSE"
                     exit 1
                 fi
-                
+
                 if echo "$XDEBUG_RESPONSE" | grep -q "Start with request: trigger"; then
                     echo "✅ XDebug start_with_request is set to trigger"
                 else
                     echo "❌ XDebug start_with_request not set to trigger"
                     exit 1
                 fi
-                
+
             else
                 echo "❌ XDebug extension not loaded in web environment"
                 echo "Response: $XDEBUG_RESPONSE"
                 nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
                 exit 1
             fi
-            
+
             # Test 4: Test XDebug trigger mechanism
             echo "📋 Test 4: Testing XDebug trigger mechanism..."
             TRIGGER_RESPONSE=$(curl -s "'$TEST_URL'/xdebug-test.php?XDEBUG_SESSION_START=1")
@@ -218,7 +218,7 @@ EOF
                 nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
                 exit 1
             fi
-            
+
             # Stop the detached process-compose using our tools
             nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
             echo "🎉 All XDebug tests passed!"
@@ -228,12 +228,12 @@ echo "🧹 Performing final cleanup..."
 nix develop --command bash <<EOF 2>/dev/null || true
     export CI=true
     export DISPLAY=""
-    
+
     if pc-status >/dev/null 2>&1; then
         echo "Stopping any remaining services..."
         pc-stop
     fi
-    
+
     # Nuclear cleanup if needed
     if pgrep -f 'process-compose.*xdebug-test' >/dev/null 2>&1; then
         echo "Emergency cleanup: killing remaining processes..."
@@ -245,7 +245,7 @@ EOF
         echo "   Attempt $i/30: Environment not ready yet..."
         sleep 10
     done
-    
+
     echo "❌ Environment failed to start within timeout"
     nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
     exit 1
