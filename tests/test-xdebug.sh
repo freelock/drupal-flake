@@ -116,7 +116,7 @@ timeout $TEST_TIMEOUT bash -c '
         export DISPLAY=""
 
         echo "Debug: Available commands: \`which start-detached pc-status pc-stop 2>/dev/null || echo not found\`"
-        echo "Debug: TTY check: \`tty 2>/dev/null || echo 'no tty'\`"
+        echo "Debug: TTY check: `tty 2>/dev/null || echo 'no tty'`"
         echo "Debug: CI=\$CI, DISPLAY=\$DISPLAY"
 
         # Start services in background (always detached for testing)
