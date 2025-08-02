@@ -78,21 +78,21 @@ echo "📋 Test 3: Testing demo environment startup..."
 echo "🔨 Starting demo environment in detached mode (this may take several minutes)..."
 
 # Enter devShell and start demo services  
-nix develop --command bash -c "
+nix develop --command bash <<EOF
     # Set CI environment variables for headless operation
     export CI=true
-    export DISPLAY=\"\"
+    export DISPLAY=""
     
-    echo \"Debug: Available commands: \$(which start-demo start-detached pc-status pc-stop 2>/dev/null || echo not found)\"
-    echo \"Debug: TTY check: \$(tty 2>/dev/null || echo 'no tty')\"
-    echo \"Debug: CI=\$CI, DISPLAY=\$DISPLAY\"
+    echo "Debug: Available commands: \$(which start-demo start-detached pc-status pc-stop 2>/dev/null || echo not found)"
+    echo "Debug: TTY check: \$(tty 2>/dev/null || echo 'no tty')"
+    echo "Debug: CI=\$CI, DISPLAY=\$DISPLAY"
     
     # Always use detached mode for testing to avoid TUI issues
-    echo \"Starting demo in detached mode (no TUI)\"
+    echo "Starting demo in detached mode (no TUI)"
     nix run .#demo -- --detached >../demo.log 2>&1
     
-    echo \"Demo start process completed\"
-"
+    echo "Demo start process completed"
+EOF
 
 # Give it more time to start all services
 echo "⏳ Waiting for services to initialize..."
@@ -104,17 +104,17 @@ for i in {1..30}; do
     # Check status using our process management tools
     if [ $((i % 5)) -eq 0 ]; then
         echo "   Debug: Attempt $i/30 - Checking service status..."
-        nix develop --command bash -c "
+        nix develop --command bash <<EOF
             export CI=true
-            export DISPLAY=\"\"
+            export DISPLAY=""
             
             if pc-status >/dev/null 2>&1; then
-                echo \"   ✅ Services are running\"
+                echo "   ✅ Services are running"
                 pc-status
             else
-                echo \"   ⏳ Services not ready yet\"
+                echo "   ⏳ Services not ready yet"
             fi
-        "
+EOF
     fi
     
     # Check if HTTP service is available
@@ -122,7 +122,11 @@ for i in {1..30}; do
         echo "✅ Demo environment started successfully at $TEST_URL"
         
         # Stop the detached process-compose using our tools
-        nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
+        nix develop --command bash <<EOF 2>/dev/null || true
+            export CI=true
+            export DISPLAY=""
+            pc-stop
+EOF
         exit 0
     fi
     
@@ -137,25 +141,29 @@ cat demo.log 2>/dev/null || echo "No log file found"
 cp demo.log test-logs/demo-timeout.log 2>/dev/null || true
 
 # Stop the detached process-compose using our tools
-nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
+nix develop --command bash <<EOF 2>/dev/null || true
+    export CI=true
+    export DISPLAY=""
+    pc-stop
+EOF
 exit 1
 
 echo "🎉 All demo tests passed!"
 
 # Final cleanup - ensure no processes left running  
 echo "🧹 Performing final cleanup..."
-nix develop --command bash -c "
+nix develop --command bash <<EOF 2>/dev/null || true
     export CI=true
-    export DISPLAY=\"\"
+    export DISPLAY=""
     
     if pc-status >/dev/null 2>&1; then
-        echo \"Stopping any remaining services...\"
+        echo "Stopping any remaining services..."
         pc-stop
     fi
     
     # Nuclear cleanup if needed
     if pgrep -f 'process-compose.*test-project' >/dev/null 2>&1; then
-        echo \"Emergency cleanup: killing remaining processes...\"
+        echo "Emergency cleanup: killing remaining processes..."
         pkill -f 'process-compose.*test-project' || true
     fi
-" 2>/dev/null || true
+EOF
