@@ -25,18 +25,33 @@
 
         Your new Drupal environment has been created!
 
-        To get started:
+        ## Quick Start:
 
         1. Edit .env to configure your project and add to git.
         2. Run `direnv allow` (optional).
         3. Run `nix develop` to get a devShell.
-        4. Run `?` to see available commands.
-        5. Use `start` to start the environment, `start-demo` to start a demo of Drupal CMS, or `start-config` to install from config.
+        4. Run `?` to see all available commands.
+        5. Use `start-detached` to start in background, or `start-demo` for a quick demo.
         6. Add .direnv, data and other environment-related dirs/files to .gitignore.
 
         ```
-        echo -e ".direnv\n/data\n/logs" >> .gitignore
+        echo -e ".direnv\n/data" >> .gitignore
         ```
+
+        ## Key Commands:
+        - `start-detached` - Start development environment in background
+        - `pc-status` - Check if services are running
+        - `pc-attach` - Connect to running services TUI
+        - `pc-stop` - Stop services for this project
+        - `setup-starship-prompt` - Add status indicator to your shell prompt
+
+        ## Development Workflow:
+        1. `start-detached` - Start services in background
+        2. `pc-status` - Verify everything is running
+        3. Code away! The starship prompt shows when services are active.
+        4. `pc-stop` - Stop when done
+
+        Run `?` in the devShell for complete command reference.
       '';
     };
 

@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Simple PROJECT_NAME display for starship
-if [ -n "${PROJECT_NAME:-}" ]; then
-    echo "${PROJECT_NAME}"
-fi
 # Starship custom module for process-compose status
 # Usage: Add this to your starship.toml:
 #
@@ -12,7 +8,31 @@ fi
 # format = "[$output]($style)"
 # style = "bold green"
 
-# Check if process-compose is running for this project
+# Debug mode - set DEBUG_STARSHIP=1 to enable
+DEBUG=${DEBUG_STARSHIP:-0}
+
+# Function to test socket connectivity
+test_socket() {
+    local socket="$1"
+    if [ -S "$socket" ]; then
+        # First check if socket exists and is accessible
+        if [ -r "$socket" ] && [ -w "$socket" ]; then
+            # Try API test if curl is available
+            if command -v curl >/dev/null 2>&1; then
+                curl --silent --max-time 1 \
+                     --unix-socket "$socket" \
+                     http://localhost/live >/dev/null 2>&1
+                return $?
+            else
+                # Fallback: just check if socket is accessible
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
+# Get project name
 if [ -n "${PROJECT_NAME:-}" ]; then
     PROJECT_NAME="${PROJECT_NAME}"
 else
@@ -24,10 +44,34 @@ else
     fi
 fi
 
-# Fast check - just look for process-compose running
-if pgrep -f "process-compose" >/dev/null 2>&1; then
-    echo "💧❄️ ${PROJECT_NAME}"
-else
-    # Don't output anything if not running (cleaner prompt)
-    exit 1
+# Check socket path from environment first
+if [ -n "${PC_SOCKET_PATH:-}" ]; then
+    [ "$DEBUG" = "1" ] && echo "DEBUG: Checking PC_SOCKET_PATH=$PC_SOCKET_PATH" >&2
+    if test_socket "$PC_SOCKET_PATH"; then
+        echo "💧❄️ ${PROJECT_NAME}"
+        exit 0
+    fi
 fi
+
+# Fallback: check predictable socket path
+SOCKET_PATH="/tmp/process-compose-${PROJECT_NAME}.sock"
+[ "$DEBUG" = "1" ] && echo "DEBUG: Checking predictable path=$SOCKET_PATH" >&2
+if test_socket "$SOCKET_PATH"; then
+    echo "💧❄️ ${PROJECT_NAME}"
+    exit 0
+fi
+
+# Last resort: check for any process-compose socket
+FALLBACK_SOCKET=$(find /tmp -name "process-compose-*.sock" 2>/dev/null | head -1)
+if [ -n "$FALLBACK_SOCKET" ]; then
+    [ "$DEBUG" = "1" ] && echo "DEBUG: Checking fallback socket=$FALLBACK_SOCKET" >&2
+    if test_socket "$FALLBACK_SOCKET"; then
+        echo "💧❄️ ${PROJECT_NAME}"
+        exit 0
+    fi
+fi
+
+[ "$DEBUG" = "1" ] && echo "DEBUG: No working socket found" >&2
+
+# Don't output anything if not running (cleaner prompt)
+exit 1

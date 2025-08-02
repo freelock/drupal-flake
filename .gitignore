@@ -21,4 +21,3 @@
 # Ignore direnv paths, local nix data
 .direnv
 /data
-/logs

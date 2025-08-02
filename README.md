@@ -93,16 +93,62 @@ Available PHP versions include:
 ## Commands available in Dev Shell
 
 ### Development Commands:
-nix run                 Start the development environment
-start                   Start the development environment
-nix run .#demo          Set up a new Drupal site, or start servers
-start-demo              Set up a new Drupal site, or start servers
-start-config            Start servers and install Drupal from config - CLOBBERS EXISTING DATABASE
-xdrush                  Run Drush with Xdebug enabled
-nix-settings            Add/include settings.nix.php (done automatically with start)
-refresh-flake [path]    Refresh the flake from Drupal.org or [path]
-?                       Show this help message
+**Basic Commands:**
+- `nix run` - Start the development environment (interactive)
+- `start` - Start the development environment (interactive)
+- `start-detached` - Start the development environment in background
+- `nix run .#demo` - Set up a new Drupal site, or start servers
+- `start-demo` - Set up a new Drupal site, or start servers
+- `start-config` - Start servers and install Drupal from config - **CLOBBERS EXISTING DATABASE**
 
+**Process Management:**
+- `pc-status` - Check if process-compose is running and show status
+- `pc-attach` - Attach to running process-compose TUI (detach with F10)
+- `pc-stop` - Stop the current project's development environment
+- `stop-all` - Stop ALL process-compose development environments
+
+**Development Tools:**
+- `xdrush` - Run Drush with Xdebug enabled
+- `nix-settings` - Add/include settings.nix.php (done automatically with start)
+- `refresh-flake [path]` - Refresh the flake from Drupal.org or [path]
+- `setup-starship-prompt` - Configure starship prompt to show process-compose status
+- `?` - Show help message with all available commands
+
+### Starship Prompt Integration
+
+If you use [Starship](https://starship.rs/) for your shell prompt, run `setup-starship-prompt` to configure a status indicator that shows:
+- `💧❄️ project-name` when process-compose is running for the current project
+- Nothing when process-compose is not running
+
+This gives you instant visual feedback about your development environment status across all shell sessions and subdirectories.
+
+## Development Workflow
+
+### Background Mode (Recommended)
+
+For the best development experience, use the background mode:
+
+1. **Start detached**: `start-detached` - Runs services in background
+2. **Check status**: `pc-status` - Verify everything is running and get connection info
+3. **Code away**: Your starship prompt shows when services are active
+4. **Attach when needed**: `pc-attach` - Connect to the TUI to see logs or manage processes
+5. **Stop cleanly**: `pc-stop` - Stop just this project's services
+
+### Interactive Mode
+
+For debugging or learning:
+
+1. **Start interactive**: `start` or `nix run` - Shows TUI immediately
+2. **Use F10 to detach** - Keeps services running in background
+3. **Use `pc-attach`** to reconnect to the TUI
+
+### Multiple Projects
+
+You can run multiple projects simultaneously on different ports:
+- Each project gets its own socket and status file
+- `pc-stop` stops only the current project
+- `stop-all` stops everything (nuclear option)
+- Starship shows the current project's status
 
 ## Next up
 

@@ -24,9 +24,9 @@
         let
           # Add nixpkgs-php74 for PHP 7.4 support
           pkgs-php74 = import inputs.nixpkgs-php74 { inherit system; };
-          
+
           # Load local extensions if available
-          localExtensions = 
+          localExtensions =
             if builtins.pathExists ./nix/local-extensions.nix
             then import ./nix/local-extensions.nix { inherit pkgs lib system; }
             else {
@@ -34,7 +34,7 @@
               extraNixPackages = [];
               customTools = [];
             };
-          
+
           # Function to read env vars with defaults
           getEnvWithDefault = name: default:
             let
@@ -130,12 +130,6 @@
               # Set PHP timeout
               phpTimeout = phpTimeout;
             };
-            # Create log dir
-            settings.processes.setupNginx = {
-              command = ''
-                mkdir -p logs
-              '';
-            };
             services.nginx."${projectName}-nginx" = {
               enable = true;
 
@@ -150,8 +144,8 @@
                   index index.php index.html index.htm;
 
                   # logging
-                  access_log logs/${projectName}-access.log;
-                  error_log logs/${projectName}-error.log;
+                  access_log data/${projectName}-nginx/${projectName}-access.log;
+                  error_log data/${projectName}-nginx/${projectName}-error.log;
 
                   location / {
                     try_files $uri $uri/ /index.php?$query_string;
@@ -192,6 +186,8 @@
                 }
               '';
             };
+
+
             #services.caddy."${projectName}" = {
             #  enable = true;
               # Override domain:
@@ -214,7 +210,7 @@
             };
 
 
-          } 
+          }
           // lib.optionalAttrs (builtins.getEnv "CI" == "" && builtins.getEnv "GITLAB_CI" == "" && builtins.getEnv "GITHUB_ACTIONS" == "") {
             # Open browser to the domain (only if not in CI environment)
             settings.processes.open-browser = {
@@ -228,14 +224,43 @@
 
       in
       {
-        process-compose."default" = { config, ...}: baseConfig;
+        process-compose."default" = { config, ...}: baseConfig // {
+          # Override process-compose CLI options
+          cli.options = {
+            # Enable REST server on port 8080 instead of disabling it
+            no-server = false;
+            # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
+            use-uds = true;
+          };
+
+          # Create status file when process-compose starts
+          settings.processes.pc-status-start = {
+            command = "echo '${projectName}' > /tmp/pc-running-${projectName}";
+            availability.restart = "no";
+          };
+        };
 
         # Detached target - same as default but runs in background
-        process-compose."detached" = { config, ...}: baseConfig;
+        process-compose."detached" = { config, ...}: baseConfig // {
+          # Override process-compose CLI options
+          cli.options = {
+            # Enable REST server on port 8080 instead of disabling it
+            no-server = false;
+            # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
+            use-uds = true;
+          };
+        };
 
         # New demo target to install Drupal
         process-compose."demo" = { config, ...}:
           lib.recursiveUpdate baseConfig {
+            # Override process-compose CLI options
+            cli.options = {
+              # Enable REST server on port 8080 instead of disabling it
+              no-server = false;
+              # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
+              use-uds = true;
+            };
             services.init."cms" = {
               enable = true;
               projectName = projectName;
@@ -269,6 +294,13 @@
         # Config target to install drupal from config
         process-compose."config" = { config, ...}:
           lib.recursiveUpdate baseConfig {
+            # Override process-compose CLI options
+            cli.options = {
+              # Enable REST server on port 8080 instead of disabling it
+              no-server = false;
+              # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
+              use-uds = true;
+            };
             services.config."cms" = {
               enable = true;
               projectName = projectName;
@@ -313,37 +345,66 @@
             (pkgs.writeScriptBin "start-detached" ''
               #!${pkgs.bash}/bin/bash
               echo "🚀 Starting ${projectName} development environment in detached mode..."
-              
+
               # Use setsid to properly detach the process while keeping server functionality
               mkdir -p ./data
               setsid nix run . -- --tui=false </dev/null >./data/process-compose.log 2>&1 &
               COMPOSE_PID=$!
               sleep 5
-              
+
               # Check if process is still running
               if kill -0 $COMPOSE_PID 2>/dev/null; then
                 echo "✅ Development environment started in background (PID: $COMPOSE_PID)"
-                echo "   Use 'stop-detached' to stop the services"
-                echo "   View logs: tail -f ./data/process-compose.log"
+                echo "   Use 'pc-stop' to stop the services"
+                echo "   View process logs: tail -f ./data/process-compose.log"
                 echo "   Check status: pgrep -f ${projectName}"
                 echo "   Site URL: http://${domain}:${port}"
-                echo "   Logs: ./data/process-compose.log"
+                echo "   Process logs: ./data/process-compose.log"
+                echo "   Nginx logs: ./data/${projectName}-nginx/"
               else
                 echo "❌ Failed to start development environment"
-                echo "   Check logs: ./data/process-compose.log"
+                echo "   Check process logs: ./data/process-compose.log"
                 exit 1
               fi
             '')
-            (pkgs.writeScriptBin "stop-detached" ''
+            (pkgs.writeScriptBin "pc-stop" ''
               #!${pkgs.bash}/bin/bash
               echo "🛑 Stopping ${projectName} development environment..."
-              if pgrep -f "process-compose" >/dev/null 2>&1 && pgrep -f "${projectName}" >/dev/null 2>&1; then
-                # Kill process-compose and project services
-                pkill -f "process-compose" || true
-                pkill -f "${projectName}" || true
-                echo "✅ Development environment stopped"
+
+              # Use the socket to stop this specific project
+              if [ -n "''${PC_SOCKET_PATH:-}" ] && [ -e "''${PC_SOCKET_PATH}" ]; then
+                echo "   Stopping via socket: ''${PC_SOCKET_PATH}"
+                process-compose down || true
+                echo "✅ ${projectName} development environment stopped"
               else
-                echo "ℹ️  Development environment is not running"
+                echo "ℹ️  ${projectName} development environment is not running"
+              fi
+            '')
+            # Legacy alias for backward compatibility
+            (pkgs.writeScriptBin "stop-detached" ''
+              #!${pkgs.bash}/bin/bash
+              echo "⚠️  'stop-detached' is deprecated, use 'pc-stop' instead"
+              pc-stop "$@"
+            '')
+            (pkgs.writeScriptBin "stop-all" ''
+              #!${pkgs.bash}/bin/bash
+              echo "🛑 Stopping ALL process-compose development environments..."
+
+              # Find all process-compose processes and stop them
+              if pgrep -f "process-compose" >/dev/null 2>&1; then
+                echo "   Found running process-compose instances, stopping them..."
+                pkill -f "process-compose" || true
+                sleep 2
+
+                # Clean up any remaining processes
+                pkill -f "process-compose" -9 || true
+
+                # Clean up status files
+                rm -f /tmp/pc-running-* 2>/dev/null || true
+
+                echo "✅ All development environments stopped"
+              else
+                echo "ℹ️  No process-compose instances found"
               fi
             '')
           ];
@@ -358,7 +419,7 @@
               # Create logs directory if it doesn't exist
               mkdir -p $PROJECT_ROOT/data/logs
               mkdir -p $PROJECT_ROOT/data/xdebug_profiles
-              
+
               if [ "${phpVersion}" = "php74" ] && [ -e ${finalPkgs.drush or ""}/bin/drush ]; then
                 # Use standalone drush with PHP 7.4
                 php -d xdebug.mode=debug \
@@ -391,16 +452,64 @@
               echo "ℹ️  XDebug profiling is controlled per-request."
               echo "   Remove ?XDEBUG_PROFILE=1 from URLs or XDEBUG_PROFILE cookie to disable."
             '')
+            (writeScriptBin "pc-status" ''
+              #!${pkgs.bash}/bin/bash
+              SOCKET="''${PC_SOCKET_PATH:-/tmp/process-compose-${projectName}.sock}"
+              if [ -S "$SOCKET" ]; then
+                echo "🟢 Process-compose is running"
+                echo "   Socket: $SOCKET"
+                echo "   Project: ${projectName}"
+
+                # Try to get status via API
+                if command -v curl >/dev/null 2>&1; then
+                  echo ""
+                  echo "API Status:"
+                  curl --silent --max-time 2 --unix-socket "$SOCKET" http://localhost/project/state | \
+                    ${pkgs.jq}/bin/jq -r '  "   Uptime: " + (.upTime/1000000000 | floor | tostring) + "s" +
+                                            "\n   Processes: " + (.runningProcessNum | tostring) + "/" + (.processNum | tostring) + " running" +
+                                            "\n   Version: " + .version' 2>/dev/null || echo "   API unavailable"
+                fi
+              else
+                echo "🔴 Process-compose is not running"
+                echo "   Expected socket: $SOCKET"
+              fi
+            '')
+            (writeScriptBin "pc-attach" ''
+              #!${pkgs.bash}/bin/bash
+              if [ -n "''${PC_SOCKET_PATH:-}" ]; then
+                echo "🔗 Attaching to process-compose TUI..."
+                # process-compose attach will use PC_SOCKET_PATH automatically
+                process-compose attach
+              else
+                echo "❌ PC_SOCKET_PATH not set"
+                echo "   Are you in the development shell? Try 'nix develop'"
+                exit 1
+              fi
+            '')
+            (writeScriptBin "starship-process-compose" ''
+              #!${pkgs.bash}/bin/bash
+              # Ultra-fast starship module
+
+              # Quick exit if not in nix environment
+              [ -n "''${PROJECT_NAME:-}" ] || exit 1
+              [ -n "''${PC_SOCKET_PATH:-}" ] || exit 1
+
+              # Just check if socket file exists (faster than socket test)
+              [ -e "''${PC_SOCKET_PATH}" ] && echo "💧❄️ ''${PROJECT_NAME}" || exit 1
+            '')
             (writeScriptBin "?" ''
               #!${pkgs.bash}/bin/bash
               echo -e "\n\033[1;34m${projectName} Development Commands:\033[0m"
               echo -e "\033[1;32mnix run\033[0m                 Start the development environment"
               echo -e "\033[1;32mstart\033[0m                   Start the development environment"
               echo -e "\033[1;32mstart-detached\033[0m          Start the development environment in background"
-              echo -e "\033[1;32mstop-detached\033[0m           Stop the detached development environment"
+              echo -e "\033[1;32mpc-stop\033[0m                 Stop the current project's development environment"
+              echo -e "\033[1;32mstop-all\033[0m                Stop ALL process-compose development environments"
               echo -e "\033[1;32mnix run .#demo\033[0m          Set up a new Drupal site, or start servers"
               echo -e "\033[1;32mstart-demo\033[0m              Set up a new Drupal site, or start servers"
               echo -e "\033[1;32mstart-config\033[0m            Start servers and install Drupal from config - CLOBBERS EXISTING DATABASE"
+              echo -e "\033[1;32mpc-status\033[0m               Check process-compose status and socket"
+              echo -e "\033[1;32mpc-attach\033[0m               Attach to running process-compose TUI"
               echo -e "\033[1;32mxdrush\033[0m                  Run Drush with Xdebug enabled"
               echo -e "\033[1;32mxdebug-profile-on\033[0m       Enable XDebug profiling (requires restart)"
               echo -e "\033[1;32mxdebug-profile-off\033[0m      Disable XDebug profiling (requires restart)"
@@ -410,6 +519,7 @@
               echo -e "\033[1;32m?\033[0m                       Show this help message"
               echo ""
               echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
+              echo -e "Socket: \033[1;33m''${PC_SOCKET_PATH:-/tmp/process-compose-${projectName}.sock}\033[0m"
             '')
           ] ++ (localExtensions.extraNixPackages or []) ++ (localExtensions.customTools or []);
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
@@ -420,6 +530,9 @@
             export PROJECT_NAME="${projectName}"
             export PATH="$PWD/vendor/bin:$PATH"
             export DB_SOCKET="$PWD/${dbSocket}"
+            export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
+            export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"  # Backward compatibility
+            export PC_STATUS_FILE="/tmp/pc-running-${projectName}"
             echo "Entering development environment for ${projectName}"
             echo "Use '?' to see the commands provided in this flake."
           '';
