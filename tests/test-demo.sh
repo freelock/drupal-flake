@@ -75,13 +75,21 @@ echo "✅ Template initialization passed"
 # Test 3: Demo environment startup (with timeout)
 echo "📋 Test 3: Testing demo environment startup..."
 # Start demo in detached mode for testing
-echo "🔨 Starting nix run .#demo in detached mode (this may take several minutes)..."
-# Debug: Check if process-compose is available
-echo "Debug: process-compose version: $(process-compose --version 2>/dev/null || echo not found)"
-echo "Debug: process-compose location: $(which process-compose 2>/dev/null || echo not found)"
+echo "🔨 Starting demo environment in detached mode (this may take several minutes)..."
 
-# Start the services
-nix run .#demo -- --detached >demo.log 2>&1
+# Enter devShell and start demo services
+nix develop --command bash -c "
+    echo \"Debug: Available commands: \$(which start-demo pc-status pc-stop 2>/dev/null || echo not found)\"
+    
+    # Start demo services in background
+    start-demo >../demo.log 2>&1 &
+    DEMO_PID=\$!
+    
+    # Wait for the start-demo process to complete
+    wait \$DEMO_PID
+    
+    echo \"Demo start process completed\"
+"
 
 # Give it more time to start all services
 echo "⏳ Waiting for services to initialize..."
@@ -90,12 +98,25 @@ sleep 15
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
 for i in {1..30}; do
+    # Check status using our process management tools
+    if [ $((i % 5)) -eq 0 ]; then
+        echo "   Debug: Attempt $i/30 - Checking service status..."
+        nix develop --command bash -c "
+            if pc-status >/dev/null 2>&1; then
+                echo \"   ✅ Services are running\"
+                pc-status
+            else
+                echo \"   ⏳ Services not ready yet\"
+            fi
+        "
+    fi
+    
     # Check if HTTP service is available
     if curl -s "$TEST_URL" >/dev/null 2>&1; then
         echo "✅ Demo environment started successfully at $TEST_URL"
         
-        # Stop the detached process-compose
-        nix run .#demo -- down 2>/dev/null || true
+        # Stop the detached process-compose using our tools
+        nix develop --command pc-stop 2>/dev/null || true
         exit 0
     fi
     
@@ -109,8 +130,23 @@ cat demo.log 2>/dev/null || echo "No log file found"
 # Save logs for CI artifacts
 cp demo.log test-logs/demo-timeout.log 2>/dev/null || true
 
-# Stop the detached process-compose
-nix run .#demo -- down 2>/dev/null || true
+# Stop the detached process-compose using our tools
+nix develop --command pc-stop 2>/dev/null || true
 exit 1
 
 echo "🎉 All demo tests passed!"
+
+# Final cleanup - ensure no processes left running  
+echo "🧹 Performing final cleanup..."
+nix develop --command bash -c "
+    if pc-status >/dev/null 2>&1; then
+        echo \"Stopping any remaining services...\"
+        pc-stop
+    fi
+    
+    # Nuclear cleanup if needed
+    if pgrep -f 'process-compose.*test-project' >/dev/null 2>&1; then
+        echo \"Emergency cleanup: killing remaining processes...\"
+        pkill -f 'process-compose.*test-project' || true
+    fi
+" 2>/dev/null || true

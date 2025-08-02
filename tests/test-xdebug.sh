@@ -106,19 +106,20 @@ echo "✅ Template initialized for XDebug test with PHP files ready"
 # Start default environment (now has minimal Drupal structure)
 echo "⏳ Starting default environment for XDebug test..."
 timeout $TEST_TIMEOUT bash -c '
-    # Start process-compose in detached mode (nix run will exit after starting)
-    echo "🚀 Starting process-compose in detached mode..."
-    # Debug: Check if process-compose is available
-    echo "Debug: process-compose version: $(process-compose --version 2>/dev/null || echo not found)"
-    echo "Debug: process-compose location: $(which process-compose 2>/dev/null || echo not found)"
+    # Start using the new process management tools
+    echo "🚀 Starting development environment in detached mode..."
     
-    # Start the services
-    nix run .#default -- --detached
-    
-    # Immediate debug: check what happened
-    echo "   Debug: Process-compose started, checking immediate status..."
-    ps aux | grep -v grep | grep process-compose || echo "   No process-compose found immediately after start"
-    process-compose ps 2>/dev/null || echo "   Process-compose ps not responding immediately"
+    # Enter devShell and start services
+    nix develop --command bash -c "
+        echo \"Debug: Available commands: \$(which start-detached pc-status pc-stop 2>/dev/null || echo not found)\"
+        
+        # Start services in background
+        start-detached
+        
+        # Check status immediately  
+        echo \"   Debug: Checking status after start...\"
+        pc-status || echo \"   pc-status not responding immediately\"
+    "
     
     # Give it more time to start all services
     echo "⏳ Waiting for services to initialize..."
@@ -126,19 +127,23 @@ timeout $TEST_TIMEOUT bash -c '
     
     # Wait for services to be ready
     for i in {1..30}; do
-        # Try to get more info about what is happening
+        # Use our process management tools for status checking
         if [ $((i % 5)) -eq 0 ]; then
-            echo "   Debug: Checking process-compose status..."
-            # Try multiple ways to check process-compose
-            process-compose ps 2>/dev/null || echo "   Direct process-compose ps failed" 
-            nix run .#default -- ps 2>/dev/null || echo "   Nix run ps failed"
+            echo "   Debug: Attempt $i/30 - Checking service status..."
             
-            # Check if any process-compose processes are running
-            ps aux | grep -v grep | grep process-compose || echo "   No process-compose processes found"
+            # Check status using our tools (in devShell context)
+            nix develop --command bash -c "
+                if pc-status >/dev/null 2>&1; then
+                    echo \"   ✅ Services are running\"
+                    pc-status
+                else
+                    echo \"   ⏳ Services not ready yet\"
+                fi
+            "
             
-            # Check basic connectivity with more detail
+            # Check basic connectivity
             echo "   Testing connectivity to $TEST_URL"
-            curl -v "$TEST_URL" 2>&1 | head -10 || echo "   Curl test failed"
+            curl -s "$TEST_URL" >/dev/null 2>&1 && echo "   ✅ HTTP connection successful" || echo "   ❌ HTTP connection failed"
         fi
         
         if curl -s "'$TEST_URL'" >/dev/null 2>&1; then
@@ -153,7 +158,7 @@ timeout $TEST_TIMEOUT bash -c '
                 echo "✅ XDebug CLI configuration appears correct"
             else
                 echo "❌ XDebug extension not loaded in CLI"
-                nix run .#default -- down 2>/dev/null || true
+                nix develop --command pc-stop 2>/dev/null || true
                 exit 1
             fi
             
@@ -190,7 +195,7 @@ timeout $TEST_TIMEOUT bash -c '
             else
                 echo "❌ XDebug extension not loaded in web environment"
                 echo "Response: $XDEBUG_RESPONSE"
-                nix run .#default -- down 2>/dev/null || true
+                nix develop --command pc-stop 2>/dev/null || true
                 exit 1
             fi
             
@@ -201,13 +206,28 @@ timeout $TEST_TIMEOUT bash -c '
                 echo "✅ XDebug trigger mechanism working"
             else
                 echo "❌ XDebug trigger mechanism failed"
-                nix run .#default -- down 2>/dev/null || true
+                nix develop --command pc-stop 2>/dev/null || true
                 exit 1
             fi
             
-            # Stop the detached process-compose
-            nix run .#default -- down 2>/dev/null || true
+            # Stop the detached process-compose using our tools
+            nix develop --command pc-stop 2>/dev/null || true
             echo "🎉 All XDebug tests passed!"
+
+# Final cleanup - ensure no processes left running
+echo "🧹 Performing final cleanup..."
+nix develop --command bash -c "
+    if pc-status >/dev/null 2>&1; then
+        echo \"Stopping any remaining services...\"
+        pc-stop
+    fi
+    
+    # Nuclear cleanup if needed
+    if pgrep -f 'process-compose.*xdebug-test' >/dev/null 2>&1; then
+        echo \"Emergency cleanup: killing remaining processes...\"
+        pkill -f 'process-compose.*xdebug-test' || true
+    fi
+" 2>/dev/null || true
             exit 0
         fi
         echo "   Attempt $i/30: Environment not ready yet..."
@@ -215,7 +235,7 @@ timeout $TEST_TIMEOUT bash -c '
     done
     
     echo "❌ Environment failed to start within timeout"
-    nix run .#default -- down 2>/dev/null || true
+    nix develop --command pc-stop 2>/dev/null || true
     exit 1
 ' || {
     echo "❌ XDebug test failed"
