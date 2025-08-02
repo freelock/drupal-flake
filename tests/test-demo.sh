@@ -77,16 +77,19 @@ echo "📋 Test 3: Testing demo environment startup..."
 # Start demo in detached mode for testing
 echo "🔨 Starting demo environment in detached mode (this may take several minutes)..."
 
-# Enter devShell and start demo services
+# Enter devShell and start demo services  
 nix develop --command bash -c "
-    echo \"Debug: Available commands: \$(which start-demo pc-status pc-stop 2>/dev/null || echo not found)\"
+    # Set CI environment variables for headless operation
+    export CI=true
+    export DISPLAY=\"\"
     
-    # Start demo services in background
-    start-demo >../demo.log 2>&1 &
-    DEMO_PID=\$!
+    echo \"Debug: Available commands: \$(which start-demo start-detached pc-status pc-stop 2>/dev/null || echo not found)\"
+    echo \"Debug: TTY check: \$(tty 2>/dev/null || echo 'no tty')\"
+    echo \"Debug: CI=\$CI, DISPLAY=\$DISPLAY\"
     
-    # Wait for the start-demo process to complete
-    wait \$DEMO_PID
+    # Always use detached mode for testing to avoid TUI issues
+    echo \"Starting demo in detached mode (no TUI)\"
+    nix run .#demo -- --detached >../demo.log 2>&1
     
     echo \"Demo start process completed\"
 "
@@ -102,6 +105,9 @@ for i in {1..30}; do
     if [ $((i % 5)) -eq 0 ]; then
         echo "   Debug: Attempt $i/30 - Checking service status..."
         nix develop --command bash -c "
+            export CI=true
+            export DISPLAY=\"\"
+            
             if pc-status >/dev/null 2>&1; then
                 echo \"   ✅ Services are running\"
                 pc-status
@@ -116,7 +122,7 @@ for i in {1..30}; do
         echo "✅ Demo environment started successfully at $TEST_URL"
         
         # Stop the detached process-compose using our tools
-        nix develop --command pc-stop 2>/dev/null || true
+        nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
         exit 0
     fi
     
@@ -131,7 +137,7 @@ cat demo.log 2>/dev/null || echo "No log file found"
 cp demo.log test-logs/demo-timeout.log 2>/dev/null || true
 
 # Stop the detached process-compose using our tools
-nix develop --command pc-stop 2>/dev/null || true
+nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
 exit 1
 
 echo "🎉 All demo tests passed!"
@@ -139,6 +145,9 @@ echo "🎉 All demo tests passed!"
 # Final cleanup - ensure no processes left running  
 echo "🧹 Performing final cleanup..."
 nix develop --command bash -c "
+    export CI=true
+    export DISPLAY=\"\"
+    
     if pc-status >/dev/null 2>&1; then
         echo \"Stopping any remaining services...\"
         pc-stop

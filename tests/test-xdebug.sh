@@ -110,16 +110,22 @@ timeout $TEST_TIMEOUT bash -c '
     echo "🚀 Starting development environment in detached mode..."
     
     # Enter devShell and start services
-    nix develop --command bash -c "
-        echo \"Debug: Available commands: \$(which start-detached pc-status pc-stop 2>/dev/null || echo not found)\"
+    nix develop --command bash <<EOF
+        # Set CI environment variables for headless operation
+        export CI=true
+        export DISPLAY=""
         
-        # Start services in background
+        echo "Debug: Available commands: \$(which start-detached pc-status pc-stop 2>/dev/null || echo not found)"
+        echo "Debug: TTY check: \$(tty 2>/dev/null || echo 'no tty')"
+        echo "Debug: CI=\$CI, DISPLAY=\$DISPLAY"
+        
+        # Start services in background (always detached for testing)
         start-detached
         
         # Check status immediately  
-        echo \"   Debug: Checking status after start...\"
-        pc-status || echo \"   pc-status not responding immediately\"
-    "
+        echo "   Debug: Checking status after start..."
+        pc-status || echo "   pc-status not responding immediately"
+EOF
     
     # Give it more time to start all services
     echo "⏳ Waiting for services to initialize..."
@@ -132,21 +138,24 @@ timeout $TEST_TIMEOUT bash -c '
             echo "   Debug: Attempt $i/30 - Checking service status..."
             
             # Check status using our tools (in devShell context)
-            nix develop --command bash -c "
+            nix develop --command bash <<EOF
+                export CI=true
+                export DISPLAY=""
+                
                 if pc-status >/dev/null 2>&1; then
-                    echo \"   ✅ Services are running\"
+                    echo "   ✅ Services are running"
                     pc-status
                 else
-                    echo \"   ⏳ Services not ready yet\"
+                    echo "   ⏳ Services not ready yet"
                 fi
-            "
+EOF
             
             # Check basic connectivity
             echo "   Testing connectivity to $TEST_URL"
             curl -s "$TEST_URL" >/dev/null 2>&1 && echo "   ✅ HTTP connection successful" || echo "   ❌ HTTP connection failed"
         fi
         
-        if curl -s "'$TEST_URL'" >/dev/null 2>&1; then
+        if curl -s "$TEST_URL" >/dev/null 2>&1; then
             echo "✅ Environment started for XDebug test"
             
             # Test 2: Check XDebug configuration via CLI
@@ -158,7 +167,7 @@ timeout $TEST_TIMEOUT bash -c '
                 echo "✅ XDebug CLI configuration appears correct"
             else
                 echo "❌ XDebug extension not loaded in CLI"
-                nix develop --command pc-stop 2>/dev/null || true
+                nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
                 exit 1
             fi
             
@@ -195,7 +204,7 @@ timeout $TEST_TIMEOUT bash -c '
             else
                 echo "❌ XDebug extension not loaded in web environment"
                 echo "Response: $XDEBUG_RESPONSE"
-                nix develop --command pc-stop 2>/dev/null || true
+                nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
                 exit 1
             fi
             
@@ -206,28 +215,31 @@ timeout $TEST_TIMEOUT bash -c '
                 echo "✅ XDebug trigger mechanism working"
             else
                 echo "❌ XDebug trigger mechanism failed"
-                nix develop --command pc-stop 2>/dev/null || true
+                nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
                 exit 1
             fi
             
             # Stop the detached process-compose using our tools
-            nix develop --command pc-stop 2>/dev/null || true
+            nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
             echo "🎉 All XDebug tests passed!"
 
 # Final cleanup - ensure no processes left running
 echo "🧹 Performing final cleanup..."
-nix develop --command bash -c "
+nix develop --command bash <<EOF 2>/dev/null || true
+    export CI=true
+    export DISPLAY=""
+    
     if pc-status >/dev/null 2>&1; then
-        echo \"Stopping any remaining services...\"
+        echo "Stopping any remaining services..."
         pc-stop
     fi
     
     # Nuclear cleanup if needed
     if pgrep -f 'process-compose.*xdebug-test' >/dev/null 2>&1; then
-        echo \"Emergency cleanup: killing remaining processes...\"
+        echo "Emergency cleanup: killing remaining processes..."
         pkill -f 'process-compose.*xdebug-test' || true
     fi
-" 2>/dev/null || true
+EOF
             exit 0
         fi
         echo "   Attempt $i/30: Environment not ready yet..."
@@ -235,7 +247,7 @@ nix develop --command bash -c "
     done
     
     echo "❌ Environment failed to start within timeout"
-    nix develop --command pc-stop 2>/dev/null || true
+    nix develop --command bash -c "export CI=true; export DISPLAY=\"\"; pc-stop" 2>/dev/null || true
     exit 1
 ' || {
     echo "❌ XDebug test failed"
