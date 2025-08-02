@@ -11,7 +11,12 @@ mkdir -p test-logs
 
 # Set up test environment
 export TEST_PROJECT_NAME="test-project"
-export TEST_URL="http://test-project.ddev.site:8088"
+# Use localhost in CI environments since .ddev.site domains don't resolve
+if [ -n "${CI:-}" ] || [ -n "${GITLAB_CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+    export TEST_URL="http://localhost:8088"
+else
+    export TEST_URL="http://test-project.ddev.site:8088"
+fi
 export TEST_TIMEOUT=600  # 10 minutes timeout for CI
 
 # Ensure we have a clean git state for template testing

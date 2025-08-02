@@ -139,7 +139,7 @@
               httpConfig = ''
                 server {
                   listen ${port};
-                  server_name ${domain};
+                  server_name ${domain} localhost 127.0.0.1;
                   root ${docroot};
                   index index.php index.html index.htm;
 
