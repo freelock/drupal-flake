@@ -63,15 +63,37 @@ in
       default = "drupal/cms";
       description = "Drupal package to install";
     };
+    composerOptions = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Additional options to pass to composer create-project";
+    };
+    customProjectName = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Custom project name to use (if provided, will create .env file)";
+    };
   };
   config = {
     package = pkgs.writeScriptBin "init" ''
       #!${pkgs.bash}/bin/bash
       export PHP_MEMORY_LIMIT=-1
       export PATH="${php}/bin:${config.php.packages.composer}/bin:$(pwd)/vendor/bin:$PATH"
+      
+      # Create .env file if custom project name is provided
+      if [ -n "${config.customProjectName}" ] && [ ! -f ".env" ] && [ -f ".env.example" ]; then
+        echo "Creating .env file with custom project name: ${config.customProjectName}"
+        cp .env.example .env
+        sed -i 's/^# PROJECT_NAME=.*/PROJECT_NAME=${config.customProjectName}/' .env
+      fi
+      
       if [ ! -f "web/index.php" ]; then
-        echo "Installing Drupal CMS..."
-        composer create-project ${config.drupalPackage} cms
+        # Use environment variables if set, otherwise use config defaults
+        DRUPAL_PKG="''${DEMO_DRUPAL_PACKAGE:-${config.drupalPackage}}"
+        COMPOSER_OPTS="''${DEMO_COMPOSER_OPTIONS:-${config.composerOptions}}"
+        
+        echo "Installing Drupal package: $DRUPAL_PKG..."
+        composer create-project $DRUPAL_PKG cms $COMPOSER_OPTS
         mv cms/* ./
         mv cms/.* ./
         rmdir cms

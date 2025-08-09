@@ -251,8 +251,149 @@
           };
         };
 
-        # New demo target to install Drupal
-        process-compose."demo" = { config, ...}:
+        # Demo package that wraps process-compose demo with argument parsing
+        packages.demo = pkgs.writeScriptBin "demo" ''
+          #!${pkgs.bash}/bin/bash
+          
+          # Default values
+          DRUPAL_PACKAGE="drupal/cms"
+          PROJECT_NAME=""
+          COMPOSER_OPTIONS=""
+          DETACHED_MODE=false
+          
+          # Parse flags first
+          while [ $# -gt 0 ]; do
+            case "$1" in
+              --help|-h)
+                echo "Usage: nix run .#demo [-- [--detached|--no-tui] [DRUPAL_PACKAGE] [PROJECT_NAME] [COMPOSER_OPTIONS]]"
+                echo ""
+                echo "Flags:"
+                echo "  --detached, --no-tui  Run without TUI (for CI/testing)"
+                echo ""
+                echo "Arguments:"
+                echo "  DRUPAL_PACKAGE   Drupal package to install (default: drupal/cms)"
+                echo "                   Examples: drupal/cms, drupal/recommended-project, phenaproxima/xb-demo"
+                echo "  PROJECT_NAME     Custom project name (default: drupal-demo)"
+                echo "                   If provided, creates .env file with this name"
+                echo "  COMPOSER_OPTIONS Additional composer create-project options"
+                echo "                   Example: --stability=dev"
+                echo ""
+                echo "Examples:"
+                echo "  nix run .#demo                                            # Use defaults"
+                echo "  nix run .#demo -- --detached                             # Run without TUI"
+                echo "  nix run .#demo -- phenaproxima/xb-demo                   # Install XB demo"
+                echo "  nix run .#demo -- phenaproxima/xb-demo my-project        # With custom name"
+                echo "  nix run .#demo -- --detached phenaproxima/xb-demo my-project --stability=dev"
+                exit 0
+                ;;
+              --detached|--no-tui)
+                DETACHED_MODE=true
+                shift
+                ;;
+              *)
+                break
+                ;;
+            esac
+          done
+          
+          # Parse positional arguments
+          if [ -n "''${1:-}" ]; then
+            DRUPAL_PACKAGE="$1"
+          fi
+          if [ -n "''${2:-}" ]; then
+            PROJECT_NAME="$2"
+          fi
+          # Handle composer options (may have multiple arguments)
+          if [ $# -gt 2 ]; then
+            shift 2
+            COMPOSER_OPTIONS="$*"
+          fi
+          
+          # Determine effective project name
+          EFFECTIVE_PROJECT_NAME="''${PROJECT_NAME:-${projectName}}"
+          
+          echo "Starting demo with:"
+          echo "  Package: $DRUPAL_PACKAGE"  
+          echo "  Project Name: $EFFECTIVE_PROJECT_NAME"
+          echo "  Composer Options: ''${COMPOSER_OPTIONS:-none}"
+          echo ""
+          
+          # Create .env file if custom project name is provided  
+          if [ -n "$PROJECT_NAME" ] && [ ! -f ".env" ]; then
+            echo "Creating .env file with custom project name: $PROJECT_NAME"
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+              ${pkgs.gnused}/bin/sed -i "s/^# PROJECT_NAME=.*/PROJECT_NAME=$PROJECT_NAME/" .env
+            else
+              # For remote flakes, create a basic .env file
+              echo "PROJECT_NAME=$PROJECT_NAME" > .env
+              echo "DOMAIN=$EFFECTIVE_PROJECT_NAME.ddev.site" >> .env  
+              echo "PORT=${port}" >> .env
+              echo "DOCROOT=web" >> .env
+            fi
+          fi
+          
+          # Override environment variables for this run
+          export PROJECT_NAME="$EFFECTIVE_PROJECT_NAME"
+          export DOMAIN="$EFFECTIVE_PROJECT_NAME.ddev.site"
+          export DOCROOT="web"
+          export DEMO_DRUPAL_PACKAGE="$DRUPAL_PACKAGE"
+          export DEMO_COMPOSER_OPTIONS="$COMPOSER_OPTIONS"
+          
+          # Set detached mode environment variable for demo-static to use
+          if [ "$DETACHED_MODE" = "true" ]; then
+            echo "Starting in detached/no-TUI mode..."
+            export DEMO_DETACHED_MODE=true
+          fi
+          
+          # Run the demo-static directly - it will use the exported variables
+          ${self'.packages.demo-static}/bin/demo-static
+        '';
+
+        # Wrapper for demo-static that can handle detached mode
+        packages.demo-static = pkgs.writeScriptBin "demo-static" ''
+          #!${pkgs.bash}/bin/bash
+          
+          # Get the actual demo-static-internal binary
+          DEMO_STATIC_BIN="${self'.packages.demo-static-internal}/bin/demo-static-internal"
+          
+          # If DEMO_DETACHED_MODE is set, run in background with --tui=false
+          if [ "''${DEMO_DETACHED_MODE:-}" = "true" ]; then
+            echo "Starting demo in detached mode..."
+            
+            # Create a modified version that adds --tui=false, then run detached
+            TEMP_WRAPPER=$(mktemp)
+            trap "rm -f $TEMP_WRAPPER" EXIT
+            
+            # Copy the original script and add --tui=false
+            ${pkgs.gnused}/bin/sed 's/process-compose --use-uds/process-compose --tui=false --use-uds/g' "$DEMO_STATIC_BIN" > "$TEMP_WRAPPER"
+            chmod +x "$TEMP_WRAPPER"
+            
+            # Run the modified script in background using setsid to properly detach
+            mkdir -p ./data
+            setsid "$TEMP_WRAPPER" "$@" </dev/null >./data/demo-detached.log 2>&1 &
+            PC_PID=$!
+            
+            sleep 3  # Give it time to start
+            
+            # Check if process is still running
+            if kill -0 $PC_PID 2>/dev/null; then
+              echo "✅ Demo started in background (PID: $PC_PID)"
+              echo "   Check logs: ./data/demo-detached.log"
+              echo "   Use 'kill $PC_PID' to stop"
+            else
+              echo "❌ Failed to start demo in background"
+              echo "   Check logs: ./data/demo-detached.log"
+              exit 1
+            fi
+          else
+            # Run the original script
+            exec "$DEMO_STATIC_BIN" "$@"
+          fi
+        '';
+
+        # Static demo process-compose (the original functionality) 
+        process-compose."demo-static-internal" = { config, ...}:
           lib.recursiveUpdate baseConfig {
             # Override process-compose CLI options
             cli.options = {
@@ -265,10 +406,9 @@
               enable = true;
               projectName = projectName;
               drupalPackage = drupalPackage;
+              composerOptions = "";
+              customProjectName = "";
               dbSocket = dbSocket;
-              #php = baseConfig.services.php-fpm."${projectName}-php".settings.php;
-              # mysqlDataDir = mysqlDataDir; # /. + "/data/${projectName}-db";
-              # php = baseConfig.settings.processes."${projectName}-php".default;
             };
             settings.processes.cms = {
               readiness_probe = {
@@ -290,6 +430,7 @@
             settings.processes."${projectName}-php".depends_on.cms.condition = "process_completed_successfully";
             settings.processes."${projectName}-nginx".depends_on.cms.condition = "process_completed_successfully";
           };
+
 
         # Config target to install drupal from config
         process-compose."config" = { config, ...}:
@@ -336,7 +477,38 @@
             '')
             (pkgs.writeScriptBin "start-demo" ''
               #!${pkgs.bash}/bin/bash
-              nix run .#demo
+              
+              # Show usage if help requested
+              if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+                echo "Usage: start-demo [DRUPAL_PACKAGE] [PROJECT_NAME] [COMPOSER_OPTIONS]"
+                echo ""
+                echo "Arguments:"
+                echo "  DRUPAL_PACKAGE   Drupal package to install (default: drupal/cms)"
+                echo "                   Examples: drupal/cms, drupal/recommended-project, phenaproxima/xb-demo"
+                echo "  PROJECT_NAME     Custom project name (default: drupal-demo)"
+                echo "                   If provided, creates .env file with this name"
+                echo "  COMPOSER_OPTIONS Additional composer create-project options"
+                echo "                   Example: --stability=dev"
+                echo ""
+                echo "Examples:"
+                echo "  start-demo                                    # Use defaults"
+                echo "  start-demo phenaproxima/xb-demo              # Install XB demo"
+                echo "  start-demo phenaproxima/xb-demo my-project   # With custom name"
+                echo "  start-demo phenaproxima/xb-demo my-project --stability=dev"
+                echo ""
+                echo "Equivalent nix run commands:"
+                echo "  nix run .#demo                                # Use defaults"
+                echo "  nix run .#demo -- phenaproxima/xb-demo       # Install XB demo"
+                echo "  nix run .#demo -- phenaproxima/xb-demo my-project --stability=dev"
+                exit 0
+              fi
+              
+              # Pass all arguments to nix run .#demo after --
+              if [ $# -gt 0 ]; then
+                nix run .#demo -- "$@"
+              else
+                nix run .#demo
+              fi
             '')
             (pkgs.writeScriptBin "start" ''
               #!${pkgs.bash}/bin/bash
