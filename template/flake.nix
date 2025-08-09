@@ -7,7 +7,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
-    services-flake.url = "github:juspay/services-flake/8bc6dff1c0d82842b28e3906ac4645a3c3a49dbe";
+    services-flake.url = "github:juspay/services-flake";
   };
 
   outputs = inputs:
@@ -94,7 +94,7 @@
             imports = [
               inputs.services-flake.processComposeModules.default
               # (multiService ./.services/caddy.nix)
-              (multiService ./.services/phpfpm.nix)
+              (multiService ./.services/php-fpm.nix)
               (multiService ./.services/init.nix)
               (multiService ./.services/config.nix)
               (multiService ./.services/nix-settings.nix)
@@ -117,7 +117,7 @@
               ];
 
             };
-            services.phpfpm."${projectName}-php" = {
+            services.php-fpm."${projectName}-php" = {
               enable = true;
               # Override PHP version:
               phpVersion = phpVersion;
@@ -266,7 +266,7 @@
               projectName = projectName;
               drupalPackage = drupalPackage;
               dbSocket = dbSocket;
-              #php = baseConfig.services.phpfpm."${projectName}-php".settings.php;
+              #php = baseConfig.services.php-fpm."${projectName}-php".settings.php;
               # mysqlDataDir = mysqlDataDir; # /. + "/data/${projectName}-db";
               # php = baseConfig.settings.processes."${projectName}-php".default;
             };
