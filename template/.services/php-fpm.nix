@@ -23,15 +23,15 @@ let
       display_errors = On
       error_reporting = E_ALL
       xdebug.mode = debug
-      xdebug.start_with_request = trigger  
+      xdebug.start_with_request = trigger
       xdebug.client_host = localhost
       xdebug.client_port = 9003
       xdebug.discover_client_host = yes
       xdebug.max_nesting_level = 512
       xdebug.output_dir = ${config.dataDir}/xdebug_profiles
       xdebug.profiler_output_name = cachegrind.out.%t.%p
-      # Disable socket override until can find a better way to do this
-      # mysqli.default_socket = ${config.dbSocket}
+      mysqli.default_socket = ${config.dataDir}/../${config.dbSocket}
+      pdo_mysql.default_socket = ${config.dataDir}/../${config.dbSocket}
     '';
   });
 
@@ -118,6 +118,7 @@ in
 	        # To support project browser/auto updates, need path to composer and rsync.
           environment = [
             "PATH=${phpEnv}/bin:${pkgs.coreutils}/bin:${pkgs.rsync}/bin:${pkgs.bash}/bin"
+            "PROJECT_ROOT=$PWD"
           ];
         };
       };

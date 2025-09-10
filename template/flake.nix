@@ -78,8 +78,8 @@
             else "../" + builtins.concatStringsSep "" (builtins.genList (i: "../") (
               (builtins.length (builtins.filter (x: x != "") (lib.splitString "/" docroot))) - 1
             ));
-          # TODO: figure out how to make this an absolute path, primarily for php-fpm.
-          dbSocket = getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
+          # Use relative path, but php-fpm.nix should handle the absolute path conversion
+          dbSocket = getEnvWithDefault "DB_SOCKET" "${projectName}-db/mysql.sock";
 
           inherit (inputs.services-flake.lib) multiService;
 
@@ -586,6 +586,8 @@
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
             (writeScriptBin "refresh-flake" (builtins.readFile ./.services/bin/refresh-flake))
             (writeScriptBin "setup-starship-prompt" (builtins.readFile ./.services/bin/setup-starship-prompt))
+            (writeScriptBin "phpunit-setup" (builtins.readFile ./.services/bin/phpunit-setup))
+            (writeScriptBin "phpunit-module" (builtins.readFile ./.services/bin/phpunit-module))
             (writeScriptBin "xdrush" ''
               #!${pkgs.bash}/bin/bash
               # Create logs directory if it doesn't exist
@@ -688,6 +690,8 @@
               echo -e "\033[1;32mnix-settings\033[0m            Add/include settings.nix.php (done automatically with start)"
               echo -e "\033[1;32mrefresh-flake [path]\033[0m    Refresh the flake from Drupal.org or [path]"
               echo -e "\033[1;32msetup-starship-prompt\033[0m   Set up starship prompt to show process-compose status"
+              echo -e "\033[1;32mphpunit-setup\033[0m           Create phpunit.xml configuration for testing"
+              echo -e "\033[1;32mphpunit-module <name>\033[0m    Run PHPUnit tests for a specific module"
               echo -e "\033[1;32m?\033[0m                       Show this help message"
               echo ""
               echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
@@ -705,6 +709,12 @@
             export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
             export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"  # Backward compatibility
             export PC_STATUS_FILE="/tmp/pc-running-${projectName}"
+            # PHPUnit environment variables
+            export DOMAIN="${domain}"
+            export PORT="${port}"
+            export DOCROOT="${docroot}"
+            export SIMPLETEST_BASE_URL="http://${domain}:${port}"
+            export SIMPLETEST_DB="mysql://drupal@localhost/drupal?unix_socket=$PWD/${dbSocket}"
             echo "Entering development environment for ${projectName}"
             echo "Use '?' to see the commands provided in this flake."
           '';
