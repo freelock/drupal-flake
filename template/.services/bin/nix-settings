@@ -34,6 +34,7 @@ cat > "${NIX_SETTINGS_FILE}" << EOL
   'username' => "drupal",
   'password' => "",
   'host' => 'localhost',
+  'unix_socket' => "\$app_root/${DB_SOCKET_REL}",
   'driver' => 'mysql',
   'prefix' => "",
 ];
