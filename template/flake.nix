@@ -79,7 +79,7 @@
               (builtins.length (builtins.filter (x: x != "") (lib.splitString "/" docroot))) - 1
             ));
           # Use relative path, but php-fpm.nix should handle the absolute path conversion
-          dbSocket = getEnvWithDefault "DB_SOCKET" "${projectName}-db/mysql.sock";
+          dbSocket = getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
 
           inherit (inputs.services-flake.lib) multiService;
 
