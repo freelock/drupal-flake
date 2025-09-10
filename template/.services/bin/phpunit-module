@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+
+# phpunit-module - Find and run PHPUnit tests for a specific Drupal module
+
+set -euo pipefail
+
+PROJECT_ROOT="$PWD"
+DOCROOT="${DOCROOT:-web}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+print_success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}❌ $1${NC}"
+}
+
+show_usage() {
+    echo "Usage: phpunit-module <module-name> [phpunit-options...]"
+    echo ""
+    echo "Find and run PHPUnit tests for a Drupal module."
+    echo ""
+    echo "Examples:"
+    echo "  phpunit-module my_custom_module"
+    echo "  phpunit-module system --group functional"
+    echo "  phpunit-module node --filter NodeTest"
+    echo ""
+    echo "The script will search for the module in these locations:"
+    echo "  • $DOCROOT/modules/custom/"
+    echo "  • $DOCROOT/modules/contrib/"
+    echo "  • $DOCROOT/core/modules/"
+    echo ""
+    echo "Test types searched (in order):"
+    echo "  • tests/src/Unit/"
+    echo "  • tests/src/Kernel/" 
+    echo "  • tests/src/Functional/"
+    echo "  • tests/src/FunctionalJavascript/"
+    echo ""
+    echo "Additional phpunit options will be passed through to PHPUnit."
+}
+
+# Check if module name was provided
+if [[ $# -lt 1 ]]; then
+    print_error "Module name is required"
+    echo ""
+    show_usage
+    exit 1
+fi
+
+MODULE_NAME="$1"
+shift # Remove module name from arguments, rest are PHPUnit options
+
+# Check if phpunit.xml exists
+if [[ ! -f "$PROJECT_ROOT/phpunit.xml" ]]; then
+    print_error "phpunit.xml not found. Run 'phpunit-setup' first."
+    exit 1
+fi
+
+# Define search paths for modules
+MODULE_PATHS=(
+    "$PROJECT_ROOT/$DOCROOT/modules/custom/$MODULE_NAME"
+    "$PROJECT_ROOT/$DOCROOT/modules/contrib/$MODULE_NAME" 
+    "$PROJECT_ROOT/$DOCROOT/core/modules/$MODULE_NAME"
+)
+
+# Find the module
+MODULE_PATH=""
+for path in "${MODULE_PATHS[@]}"; do
+    if [[ -d "$path" ]]; then
+        MODULE_PATH="$path"
+        break
+    fi
+done
+
+if [[ -z "$MODULE_PATH" ]]; then
+    print_error "Module '$MODULE_NAME' not found in any of these locations:"
+    for path in "${MODULE_PATHS[@]}"; do
+        echo "  • $path"
+    done
+    exit 1
+fi
+
+print_info "Found module: $MODULE_PATH"
+
+# Define test directories to search (in order of preference)
+TEST_DIRS=(
+    "tests/src/Unit"
+    "tests/src/Kernel"
+    "tests/src/Functional"
+    "tests/src/FunctionalJavascript"
+)
+
+# Find test directories that exist
+FOUND_TEST_DIRS=()
+for test_dir in "${TEST_DIRS[@]}"; do
+    full_path="$MODULE_PATH/$test_dir"
+    if [[ -d "$full_path" ]]; then
+        FOUND_TEST_DIRS+=("$full_path")
+        print_info "Found tests: $test_dir"
+    fi
+done
+
+if [[ ${#FOUND_TEST_DIRS[@]} -eq 0 ]]; then
+    print_warning "No test directories found in module '$MODULE_NAME'"
+    print_info "Expected to find one or more of:"
+    for test_dir in "${TEST_DIRS[@]}"; do
+        echo "  • $MODULE_PATH/$test_dir"
+    done
+    exit 1
+fi
+
+# Build phpunit command
+PHPUNIT_CMD="phpunit"
+
+# Add test directories as arguments
+for test_dir in "${FOUND_TEST_DIRS[@]}"; do
+    PHPUNIT_CMD="$PHPUNIT_CMD \"$test_dir\""
+done
+
+# Add any additional arguments passed by user
+if [[ $# -gt 0 ]]; then
+    PHPUNIT_CMD="$PHPUNIT_CMD $*"
+fi
+
+print_success "Running PHPUnit tests for module: $MODULE_NAME"
+print_info "Command: $PHPUNIT_CMD"
+print_info ""
+
+# Change to project root to ensure phpunit.xml is found
+cd "$PROJECT_ROOT"
+
+# Run the command
+eval $PHPUNIT_CMD
