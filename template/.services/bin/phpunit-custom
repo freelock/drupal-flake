@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+
+# phpunit-custom - Find and run PHPUnit tests for all custom Drupal modules and themes
+
+set -euo pipefail
+
+PROJECT_ROOT="$PWD"
+DOCROOT="${DOCROOT:-web}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+print_success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}❌ $1${NC}"
+}
+
+show_usage() {
+    echo "Usage: phpunit-custom [phpunit-options...]"
+    echo ""
+    echo "Find and run PHPUnit tests for all custom Drupal modules and themes."
+    echo ""
+    echo "Examples:"
+    echo "  phpunit-custom"
+    echo "  phpunit-custom --group functional"
+    echo "  phpunit-custom --filter CustomTest"
+    echo ""
+    echo "The script will search for tests in these locations:"
+    echo "  • $DOCROOT/modules/custom/"
+    echo "  • $DOCROOT/themes/custom/"
+    echo ""
+    echo "Test types searched (in each module/theme):"
+    echo "  • tests/src/Unit/"
+    echo "  • tests/src/Kernel/" 
+    echo "  • tests/src/Functional/"
+    echo "  • tests/src/FunctionalJavascript/"
+    echo ""
+    echo "Additional phpunit options will be passed through to PHPUnit."
+}
+
+# Handle help flag
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    show_usage
+    exit 0
+fi
+
+# Check if phpunit.xml exists
+if [[ ! -f "$PROJECT_ROOT/phpunit.xml" ]]; then
+    print_error "phpunit.xml not found. Run 'phpunit-setup' first."
+    exit 1
+fi
+
+# Define search paths for custom modules and themes
+CUSTOM_PATHS=(
+    "$PROJECT_ROOT/$DOCROOT/modules/custom"
+    "$PROJECT_ROOT/$DOCROOT/themes/custom"
+)
+
+# Define test directories to search (in order of preference)
+TEST_DIRS=(
+    "tests/src/Unit"
+    "tests/src/Kernel"
+    "tests/src/Functional"
+    "tests/src/FunctionalJavascript"
+)
+
+# Find all test directories in custom code
+FOUND_TEST_DIRS=()
+for custom_path in "${CUSTOM_PATHS[@]}"; do
+    if [[ ! -d "$custom_path" ]]; then
+        continue
+    fi
+    
+    # Look for modules/themes in this custom directory
+    for item_path in "$custom_path"/*; do
+        if [[ ! -d "$item_path" ]]; then
+            continue
+        fi
+        
+        item_name=$(basename "$item_path")
+        
+        # Search for test directories in this module/theme
+        for test_dir in "${TEST_DIRS[@]}"; do
+            full_test_path="$item_path/$test_dir"
+            if [[ -d "$full_test_path" ]] && [[ -n "$(find "$full_test_path" -name "*.php" -type f 2>/dev/null)" ]]; then
+                FOUND_TEST_DIRS+=("$full_test_path")
+                relative_path=${full_test_path#$PROJECT_ROOT/}
+                print_info "Found tests: $relative_path ($item_name)"
+            fi
+        done
+    done
+done
+
+if [[ ${#FOUND_TEST_DIRS[@]} -eq 0 ]]; then
+    print_warning "No test directories found in custom modules or themes"
+    print_info "Searched in:"
+    for custom_path in "${CUSTOM_PATHS[@]}"; do
+        if [[ -d "$custom_path" ]]; then
+            echo "  • $custom_path"
+        fi
+    done
+    print_info ""
+    print_info "Expected to find PHP test files in directories like:"
+    for test_dir in "${TEST_DIRS[@]}"; do
+        echo "  • {module_or_theme}/$test_dir/*.php"
+    done
+    exit 1
+fi
+
+print_success "Found ${#FOUND_TEST_DIRS[@]} test directories in custom code"
+
+# Use the put command (our nix devShell wrapper)
+PHPUNIT_CMD="put"
+print_info "Using put command (includes environment-specific configuration)"
+
+# Build command with test directories
+for test_dir in "${FOUND_TEST_DIRS[@]}"; do
+    PHPUNIT_CMD="$PHPUNIT_CMD \"$test_dir\""
+done
+
+# Add any additional arguments passed by user
+if [[ $# -gt 0 ]]; then
+    PHPUNIT_CMD="$PHPUNIT_CMD $*"
+fi
+
+print_success "Running PHPUnit tests for all custom modules and themes"
+print_info "Command: $PHPUNIT_CMD"
+print_info ""
+
+# Change to project root to ensure phpunit.xml is found
+cd "$PROJECT_ROOT"
+
+# Run the command
+eval $PHPUNIT_CMD

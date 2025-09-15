@@ -1,8 +1,34 @@
 #!/usr/bin/env bash
 
 # phpunit-setup - Create phpunit.xml configuration for Drupal testing
+# Usage: phpunit-setup [-c]
+#   -c: Also install composer dev dependencies and show patch instructions
 
 set -euo pipefail
+
+# Parse command line arguments
+INSTALL_COMPOSER_DEPS=false
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -c|--composer)
+      INSTALL_COMPOSER_DEPS=true
+      shift
+      ;;
+    -h|--help)
+      echo "phpunit-setup - Create phpunit.xml configuration for Drupal testing"
+      echo "Usage: phpunit-setup [-c]"
+      echo "  -c, --composer  Also install composer dev dependencies and show patch instructions"
+      echo "  -h, --help      Show this help message"
+      exit 0
+      ;;
+    *)
+      echo "Unknown parameter: $1"
+      echo "Use -h or --help for usage information"
+      exit 1
+      ;;
+  esac
+done
 
 PROJECT_ROOT="$PWD"
 DOCROOT="${DOCROOT:-web}"
@@ -185,8 +211,55 @@ print_info "  • Base URL: http://$DOMAIN:$PORT"
 print_info "  • Database: mysql://drupal@localhost/drupal?unix_socket=$DB_SOCKET"
 print_info "  • Test directories: Unit, Kernel, Functional, FunctionalJavascript"
 print_info "  • Artifacts directory: data/test-artifacts"
+
+# Install composer dependencies if requested
+if [[ "$INSTALL_COMPOSER_DEPS" == "true" ]]; then
+    print_info ""
+    print_info "Installing composer dev dependencies..."
+    
+    # Check if composer.json exists
+    if [[ ! -f "$PROJECT_ROOT/composer.json" ]]; then
+        print_error "composer.json not found in project root"
+        exit 1
+    fi
+    
+    # Install dev dependencies
+    composer require --dev \
+        phpunit/phpunit:^11.0 \
+        drupal/core-dev \
+        phpspec/prophecy-phpunit \
+        phpunit/php-code-coverage
+    
+    print_success "Composer dev dependencies installed!"
+    
+    # Show patch instructions
+    print_info ""
+    print_warning "IMPORTANT: Unix socket database connections fix required"
+    print_info ""
+    print_info "To fix functional tests with Unix socket database connections (like in"
+    print_info "containerized environments), you need to apply a patch to Drupal core."
+    print_info ""
+    print_info "This patch fixes an issue where child processes don't receive the"
+    print_info "unix_socket parameter, causing functional test failures."
+    print_info ""
+    print_info "Add the patch with this command:"
+    print_info ""
+    echo -e "${GREEN}composer config --merge --json extra.patches.\"drupal/core\" '{\"Fix db socket url handling for phpunit\": \"https://git.drupalcode.org/project/drupal/-/merge_requests/13232.diff\"}'${NC}"
+    print_info ""
+    print_info "Then run: composer install"
+    print_info ""
+    print_info "For more information, see: https://www.drupal.org/node/3546633"
+    print_info ""
+fi
+
 print_info ""
 print_info "Next steps:"
 print_info "  • Run tests with: phpunit"
 print_info "  • Test specific modules with: phpunit-module <module-name>"
 print_info "  • For browser tests, set up Selenium/Chrome driver if needed"
+
+if [[ "$INSTALL_COMPOSER_DEPS" == "false" ]]; then
+    print_info ""
+    print_info "To install composer dev dependencies and get patch instructions:"
+    print_info "  • Run: phpunit-setup -c"
+fi
