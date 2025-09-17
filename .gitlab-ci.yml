@@ -37,7 +37,7 @@ variables:
 
 # Custom jobs for Nix flake testing
 validate-flake:
-  stage: validate
+  stage: build
   image: $NIXOS_IMAGE
   before_script:
     - echo "Setting up Nix environment..."
