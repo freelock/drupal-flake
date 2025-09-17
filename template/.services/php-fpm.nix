@@ -104,6 +104,11 @@ in
       default = 60;
       description = "PHP max execution time in seconds";
     };
+    extraPaths = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [];
+      description = "Additional paths to add to PATH environment variable";
+    };
   };
 
   config = {
@@ -117,7 +122,7 @@ in
           '';
 	        # To support project browser/auto updates, need path to composer and rsync.
           environment = [
-            "PATH=${phpEnv}/bin:${pkgs.coreutils}/bin:${pkgs.rsync}/bin:${pkgs.bash}/bin"
+            "PATH=${phpEnv}/bin:${pkgs.coreutils}/bin:${pkgs.rsync}/bin:${pkgs.bash}/bin${lib.optionalString (config.extraPaths != []) ":${lib.concatStringsSep ":" config.extraPaths}"}"
             "PROJECT_ROOT=$PWD"
           ];
         };

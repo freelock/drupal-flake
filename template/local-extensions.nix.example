@@ -7,6 +7,10 @@
 
 { pkgs, lib, system }:
 
+let
+  # WeasyPrint Python environment for PDF generation
+  weasyPrintEnv = pkgs.python3.withPackages (ps: with ps; [ weasyprint pillow cffi html5lib ]);
+in
 {
   # Additional PHP extensions to include in PHP-FPM
   extraPhpExtensions = [
@@ -25,9 +29,30 @@
   ];
   
   # Custom tools/scripts to include in the dev shell
-  # This is where you can include tools from your pipelines repo
   customTools = with pkgs; [
-    # Example: include Node.js scripts from git.freelock.com/freelock/pipelines
+    # WeasyPrint Python environment for PDF generation
+    weasyPrintEnv
+    
+    # Create a weasyprint wrapper script
+    (writeShellScriptBin "weasyprint" ''
+      exec python3 -m weasyprint "$@"
+    '')
+    
+    # Create a test script to verify WeasyPrint installation
+    (writeShellScriptBin "test-weasyprint" ''
+      echo "Testing WeasyPrint installation..."
+      echo "WeasyPrint version:"
+      python3 -c "import weasyprint; print(weasyprint.__version__)"
+      echo "WeasyPrint binary location:"
+      which weasyprint || echo "weasyprint wrapper available"
+      echo "Creating test PDF..."
+      echo '<html><body><h1>WeasyPrint Test</h1><p>If you can see this, WeasyPrint is working!</p></body></html>' > /tmp/test.html
+      weasyprint /tmp/test.html /tmp/test-weasyprint.pdf && echo "PDF created successfully!" || echo "PDF creation failed"
+      ls -la /tmp/test-weasyprint.pdf 2>/dev/null || echo "PDF file not found"
+      echo "Test complete!"
+    '')
+    
+    # Example: include other tools from your pipelines repo
     # You can reference the repo as a flake input or copy scripts locally
     
     # Option 1: Simple script wrapper
@@ -55,5 +80,11 @@
     #     done
     #   '';
     # })
+  ];
+  
+  # Additional paths to add to PHP-FPM PATH environment
+  # This ensures PHP can access tools like WeasyPrint
+  extraPaths = [
+    "${weasyPrintEnv}/bin"
   ];
 }

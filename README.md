@@ -90,6 +90,25 @@ Available PHP versions include:
   - Includes the standalone drush command for older Drupal sites that use Drush 8
 - php80, php81, php82, php83, php84 (from nixpkgs nixos-unstable)
 
+### Local Extensions
+
+You can extend the development environment with additional PHP extensions, Nix packages, and custom tools by creating a `nix/local-extensions.nix` file:
+
+1. **Copy the template**: `cp local-extensions.nix.example nix/local-extensions.nix`
+2. **Customize as needed**: The template includes examples for:
+   - **Extra PHP extensions** (Redis, Memcached, etc.)
+   - **Development tools** (Node.js, Python packages, etc.) 
+   - **Custom tools and scripts**
+   - **Additional PATH entries** for PHP-FPM access
+
+**WeasyPrint Example**: The template includes a complete WeasyPrint setup for PDF generation:
+- Python environment with WeasyPrint and dependencies
+- Wrapper script for easy command-line usage
+- Test script to verify installation
+- PATH configuration so PHP can access the WeasyPrint binary
+
+The `nix/` directory is excluded from `refresh-flake` updates, so your customizations persist across flake updates.
+
 ## Commands available in Dev Shell
 
 ### Development Commands:

@@ -33,6 +33,7 @@
               extraPhpExtensions = [];
               extraNixPackages = [];
               customTools = [];
+              extraPaths = [];
             };
 
           # Function to read env vars with defaults
@@ -87,8 +88,9 @@
           # This allows us to use either the standard nixpkgs or the php74 version
           finalPkgs = pkgs // {
             php74 = pkgs-php74.php74;
+          } // (lib.optionalAttrs (pkgs-php74 ? drush) {
             drush = pkgs-php74.drush;
-          };
+          });
 
           baseConfig = {
             imports = [
@@ -127,6 +129,8 @@
               dbSocket = dbSocket;
               # Pass extra PHP extensions from local extensions
               extraPhpExtensions = localExtensions.extraPhpExtensions or [];
+              # Pass extra paths from local extensions
+              extraPaths = localExtensions.extraPaths or [];
               # Set PHP timeout
               phpTimeout = phpTimeout;
             };
@@ -464,7 +468,12 @@
           };
 
         # Dev shell for debugging
-        devShells.default = pkgs.mkShellNoCC {
+        devShells.default = 
+          let
+            # Prepare local extension packages safely
+            localPackages = (localExtensions.extraNixPackages or []) ++ (localExtensions.customTools or []);
+          in
+          pkgs.mkShellNoCC {
           inputsFrom = [
             config.process-compose."default".services.outputs.devShell
           ];
@@ -580,7 +589,7 @@
               fi
             '')
           ];
-          buildInputs = with pkgs; [
+          buildInputs = (with pkgs; [
             # Add process-compose for attach command
             process-compose
             (writeScriptBin "nix-settings" (builtins.readFile ./.services/bin/nix-settings))
@@ -595,13 +604,13 @@
               mkdir -p $PROJECT_ROOT/data/logs
               mkdir -p $PROJECT_ROOT/data/xdebug_profiles
 
-              if [ "${phpVersion}" = "php74" ] && [ -e ${finalPkgs.drush or ""}/bin/drush ]; then
+              if [ "${phpVersion}" = "php74" ] && command -v drush >/dev/null 2>&1; then
                 # Use standalone drush with PHP 7.4
                 php -d xdebug.mode=debug \
                   -d xdebug.start_with_request=yes \
                   -d xdebug.client_host=localhost \
                   -d xdebug.client_port=9003 \
-                  ${finalPkgs.drush}/bin/drush "$@"
+                  drush "$@"
               else
                 # Use vendor/bin/drush.php with other PHP versions
                 php -d xdebug.mode=debug \
@@ -699,10 +708,9 @@
               echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
               echo -e "Socket: \033[1;33m''${PC_SOCKET_PATH:-/tmp/process-compose-${projectName}.sock}\033[0m"
             '')
-          ] ++ (localExtensions.extraNixPackages or []) ++ (localExtensions.customTools or []) ++ [
             # Add zip for composer to avoid warnings about corrupted archives
             unzip
-          ];
+          ]) ++ localPackages;
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
 
           shellHook = ''

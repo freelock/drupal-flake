@@ -4,10 +4,10 @@
 set -e
 
 # Use params or env vars, fallback to defaults
-PROJECT_NAME=${1:-${PROJECT_NAME:-$(basename $(pwd))}}
-DOCROOT=${2:-${DOCROOT:-"web"}}
-DB_SOCKET=${3:-${DB_SOCKET:-"${PWD}/data/${PROJECT_NAME}-db/mysql.sock"}}
-PROJECT_ROOT_REL=${4:-${PROJECT_ROOT_REL:-"../"}}
+PROJECT_NAME="${1:-${PROJECT_NAME:-$(basename $(pwd))}}"
+DOCROOT="${2:-${DOCROOT:-web}}"
+DB_SOCKET="${3:-${DB_SOCKET:-${PWD}/data/${PROJECT_NAME}-db/mysql.sock}}"
+PROJECT_ROOT_REL="${4:-${PROJECT_ROOT_REL:-../}}"
 SITE_PATH="${DOCROOT%/}${DOCROOT:+/}sites/default"
 SETTINGS_FILE="${SITE_PATH}/settings.php"
 NIX_SETTINGS_FILE="${SITE_PATH}/settings.nix.php"
