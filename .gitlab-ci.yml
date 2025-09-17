@@ -1,46 +1,55 @@
-# GitLab CI configuration for Drupal Flake Template
-# Tests the Nix flake template functionality and XDebug configuration
+################
+# GitLabCI template for Drupal projects.
+#
+# This template is designed to give any Contrib maintainer everything they need to test, without requiring modification.
+# It is also designed to keep up to date with Core Development automatically through the use of include files that can be centrally maintained.
+# As long as you include the project, ref and three files below, any future updates added by the Drupal Association will be used in your
+# pipelines automatically. However, you can modify this template if you have additional needs for your project.
+# The full documentation is on https://project.pages.drupalcode.org/gitlab_templates/
+################
 
-workflow:
-  rules:
-    - if: $CI_MERGE_REQUEST_IID
-    - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE == 'pipeline'
-    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
-    - if: $CI_PIPELINE_SOURCE == 'web'
+# For information on alternative values for 'ref' see https://project.pages.drupalcode.org/gitlab_templates/info/templates-version/
+# To test a Drupal 7 project, change the first include filename from .main.yml to .main-d7.yml
+include:
+  - project: $_GITLAB_TEMPLATES_REPO
+    ref: $_GITLAB_TEMPLATES_REF
+    file:
+      - '/includes/include.drupalci.variables.yml'
+      - '/includes/include.drupalci.workflows.yml'
 
+################
+# Pipeline configuration variables are defined with default values and descriptions in the file
+# https://git.drupalcode.org/project/gitlab_templates/-/blob/main/includes/include.drupalci.variables.yml
+# Override variables for this Nix flake project
+################
 variables:
+  # Skip all PHP-based tests since this is a Nix project
+  SKIP_PHPUNIT: '1'
+  SKIP_PHPCS: '1'
+  SKIP_ESLINT: '1'
+  SKIP_STYLELINT: '1'
+  SKIP_PHPSTAN: '1'
+  SKIP_UPGRADE_STATUS: '1'
+  # Set target core to none since this isn't a Drupal module
+  _TARGET_CORE: 'none'
   # Use NixOS image with Nix pre-installed
   NIXOS_IMAGE: "nixos/nix:latest"
-  # Disable GitLab's default git strategy to use shallow clones
-  GIT_DEPTH: 50
-  # Set the main branch for this project
-  MAIN_BRANCH: "1.0.x"
 
-# Global before_script to set up Nix environment
-before_script:
-  - echo "Setting up Nix environment..."
-  - nix --version
-  - nix-env --version
-  # Enable flakes and nix-command experimental features
-  - mkdir -p ~/.config/nix
-  - echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-  # Add binary cache for faster builds
-  - echo "substituters = https://cache.nixos.org https://nix-community.cachix.org" >> ~/.config/nix/nix.conf
-  - echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=" >> ~/.config/nix/nix.conf
-
-stages:
-  - validate
-  - test-functionality
-  - test-integration
-
-# Stage 1: Basic validation
+# Custom jobs for Nix flake testing
 validate-flake:
   stage: validate
   image: $NIXOS_IMAGE
+  before_script:
+    - echo "Setting up Nix environment..."
+    - nix --version
+    - mkdir -p ~/.config/nix
+    - echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+    - echo "substituters = https://cache.nixos.org https://nix-community.cachix.org" >> ~/.config/nix/nix.conf
+    - echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Ky7bkq5CX+/rkCWyvRCYg3Fs=" >> ~/.config/nix/nix.conf
   script:
     - echo "🔍 Validating flake configuration..."
     - nix flake check --no-build
+    - nix flake show
     - echo "✅ Flake validation passed"
   rules:
     - changes:
@@ -49,72 +58,51 @@ validate-flake:
         - "flake.lock"
         - "template/flake.lock"
 
-validate-template:
-  stage: validate
-  image: $NIXOS_IMAGE
-  script:
-    - echo "🔍 Validating template structure..."
-    - nix flake show
-    - echo "✅ Template structure validation passed"
-  rules:
-    - changes:
-        - "template/**/*"
-
-# Stage 2: Functionality tests
 test-demo-functionality:
-  stage: test-functionality
+  stage: test
   image: $NIXOS_IMAGE
   services:
-    # Add docker service for containerized testing
     - docker:dind
   variables:
     DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
-    # Increase resource limits for CI
-    KUBERNETES_CPU_REQUEST: "2"
-    KUBERNETES_CPU_LIMIT: "4"
-    KUBERNETES_MEMORY_REQUEST: "4Gi"
-    KUBERNETES_MEMORY_LIMIT: "8Gi"
+  before_script:
+    - echo "Setting up Nix environment..."
+    - nix --version
+    - mkdir -p ~/.config/nix
+    - echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+    - echo "substituters = https://cache.nixos.org https://nix-community.cachix.org" >> ~/.config/nix/nix.conf
+    - echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Ky7bkq5CX+/rkCWyvRCYg3Fs=" >> ~/.config/nix/nix.conf
   script:
     - echo "🧪 Running demo functionality tests..."
-    # Install process-compose in the CI environment
     - nix profile install nixpkgs#process-compose nixpkgs#procps
-    - which process-compose || echo "process-compose not found after install"
     - chmod +x tests/test-demo.sh
     - ./tests/test-demo.sh
   artifacts:
     when: always
-    reports:
-      junit: test-results.xml
     paths:
       - test-logs/
     expire_in: 1 week
   timeout: 30m
-  rules:
-    - changes:
-        - "template/**/*"
-        - "tests/test-demo.sh"
-    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
 
 test-xdebug-functionality:
-  stage: test-functionality
+  stage: test
   image: $NIXOS_IMAGE
   services:
     - docker:dind
   variables:
     DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
-    # Increase resource limits for CI
-    KUBERNETES_CPU_REQUEST: "2"
-    KUBERNETES_CPU_LIMIT: "4"
-    KUBERNETES_MEMORY_REQUEST: "4Gi"
-    KUBERNETES_MEMORY_LIMIT: "8Gi"
+  before_script:
+    - echo "Setting up Nix environment..."
+    - nix --version
+    - mkdir -p ~/.config/nix
+    - echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+    - echo "substituters = https://cache.nixos.org https://nix-community.cachix.org" >> ~/.config/nix/nix.conf
+    - echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Ky7bkq5CX+/rkCWyvRCYg3Fs=" >> ~/.config/nix/nix.conf
   script:
     - echo "🧪 Running XDebug functionality tests..."
-    # Install process-compose in the CI environment
     - nix profile install nixpkgs#process-compose nixpkgs#procps
-    - which process-compose || echo "process-compose not found after install"
     - chmod +x tests/test-xdebug.sh
     - ./tests/test-xdebug.sh
   artifacts:
@@ -123,67 +111,22 @@ test-xdebug-functionality:
       - test-logs/
     expire_in: 1 week
   timeout: 20m
-  rules:
-    - changes:
-        - "template/**/*.nix"
-        - "tests/test-xdebug.sh"
-    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
 
-# Stage 3: Integration tests
-test-multiple-php-versions:
-  stage: test-integration
+test-detached-parsing:
+  stage: test
   image: $NIXOS_IMAGE
-  services:
-    - docker:dind
-  variables:
-    DOCKER_DRIVER: overlay2
-    DOCKER_TLS_CERTDIR: ""
-  parallel:
-    matrix:
-      - PHP_VERSION: ["php81", "php82", "php83", "php84"]
+  before_script:
+    - echo "Setting up Nix environment..."
+    - nix --version
+    - mkdir -p ~/.config/nix
+    - echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
   script:
-    - echo "🧪 Testing PHP version $PHP_VERSION..."
-    - mkdir -p integration-test-$PHP_VERSION
-    - cd integration-test-$PHP_VERSION
-    - nix flake init -t ../template
-    # Override PHP version in flake.nix
-    - sed -i "s/php83/$PHP_VERSION/g" flake.nix
-    - echo "📋 Testing flake check with $PHP_VERSION..."
-    - timeout 300 nix flake check --no-build
-    - echo "✅ $PHP_VERSION integration test passed"
-  artifacts:
-    when: on_failure
-    paths:
-      - integration-test-*/
-    expire_in: 1 week
-  timeout: 15m
-  rules:
-    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-    - if: $CI_COMMIT_BRANCH == $MAIN_BRANCH
-    - if: $CI_PIPELINE_SOURCE == 'schedule'
-  allow_failure: true
-
-# Nightly comprehensive test
-nightly-full-test:
-  stage: test-integration
-  image: $NIXOS_IMAGE
-  services:
-    - docker:dind
-  variables:
-    DOCKER_DRIVER: overlay2
-    DOCKER_TLS_CERTDIR: ""
-  script:
-    - echo "🌙 Running comprehensive nightly tests..."
-    - ./tests/test-demo.sh
-    - ./tests/test-xdebug.sh
-    - echo "✅ Nightly tests completed"
+    - echo "🧪 Running detached parsing tests..."
+    - chmod +x tests/test-detached-parsing.sh
+    - ./tests/test-detached-parsing.sh
   artifacts:
     when: always
     paths:
       - test-logs/
-    expire_in: 1 month
-  timeout: 45m
-  rules:
-    - if: $CI_PIPELINE_SOURCE == 'schedule'
-  allow_failure: false
+    expire_in: 1 week
+  timeout: 10m
