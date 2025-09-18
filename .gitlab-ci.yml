@@ -66,6 +66,8 @@ test-demo-functionality:
   variables:
     DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
+    # Enable TTY for process-compose
+    FF_SCRIPT_SECTIONS: "true"
   before_script:
     - echo "Setting up Nix environment..."
     - nix --version
@@ -75,9 +77,9 @@ test-demo-functionality:
     - echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Ky7bkq5CX+/rkCWyvRCYg3Fs=" >> ~/.config/nix/nix.conf
   script:
     - echo "🧪 Running demo functionality tests..."
-    - nix profile install nixpkgs#process-compose nixpkgs#procps
+    - nix profile install nixpkgs#process-compose nixpkgs#procps nixpkgs#util-linux
     - chmod +x tests/test-demo.sh
-    - ./tests/test-demo.sh
+    - script -qec "./tests/test-demo.sh" /dev/null
   artifacts:
     when: always
     paths:
@@ -93,6 +95,8 @@ test-xdebug-functionality:
   variables:
     DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
+    # Enable TTY for process-compose
+    FF_SCRIPT_SECTIONS: "true"
   before_script:
     - echo "Setting up Nix environment..."
     - nix --version
@@ -102,9 +106,9 @@ test-xdebug-functionality:
     - echo "trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Ky7bkq5CX+/rkCWyvRCYg3Fs=" >> ~/.config/nix/nix.conf
   script:
     - echo "🧪 Running XDebug functionality tests..."
-    - nix profile install nixpkgs#process-compose nixpkgs#procps
+    - nix profile install nixpkgs#process-compose nixpkgs#procps nixpkgs#util-linux
     - chmod +x tests/test-xdebug.sh
-    - ./tests/test-xdebug.sh
+    - script -qec "./tests/test-xdebug.sh" /dev/null
   artifacts:
     when: always
     paths:
