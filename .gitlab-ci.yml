@@ -68,6 +68,8 @@ test-demo-functionality:
     DOCKER_TLS_CERTDIR: ""
     # Enable TTY for process-compose
     FF_SCRIPT_SECTIONS: "true"
+    # Reduce resource usage to avoid CI resource constraints
+    PC_DISABLE_TUI: "true"
   before_script:
     - echo "Setting up Nix environment..."
     - nix --version
@@ -97,6 +99,8 @@ test-xdebug-functionality:
     DOCKER_TLS_CERTDIR: ""
     # Enable TTY for process-compose
     FF_SCRIPT_SECTIONS: "true"
+    # Reduce resource usage to avoid CI resource constraints
+    PC_DISABLE_TUI: "true"
   before_script:
     - echo "Setting up Nix environment..."
     - nix --version

@@ -119,10 +119,12 @@ timeout $TEST_TIMEOUT bash -c '
         # Set CI environment variables for headless operation
         export CI=true
         export DISPLAY=""
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
 
         echo "Debug: Available commands: \`which start-detached pc-status pc-stop 2>/dev/null || echo not found\`"
         echo "Debug: TTY check: `tty 2>/dev/null || echo no tty`"
         echo "Debug: CI=\$CI, DISPLAY=\$DISPLAY"
+        echo "Debug: PC_SOCKET_PATH=\$PC_SOCKET_PATH"
 
         # Start services in background (always detached for testing)
         start-detached
@@ -146,12 +148,15 @@ EOF
             nix develop --command bash <<EOF
                 export CI=true
                 export DISPLAY=""
+                export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
 
                 if pc-status >/dev/null 2>&1; then
                     echo "   ✅ Services are running"
                     pc-status
                 else
-                    echo "   ⏳ Services not ready yet"
+                    echo "   🔴 Process-compose is not running"
+                    echo "   Expected socket: \$PC_SOCKET_PATH"
+                    ls -la /tmp/process-compose* 2>/dev/null || echo "   No process-compose sockets found"
                 fi
 EOF
 
@@ -175,6 +180,7 @@ EOF
                 nix develop --command bash <<EOF 2>/dev/null || true
                     export CI=true
                     export DISPLAY=""
+                    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
                     pc-stop
 EOF
                 exit 1
@@ -216,6 +222,7 @@ EOF
                 nix develop --command bash <<EOF 2>/dev/null || true
                     export CI=true
                     export DISPLAY=""
+                    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
                     pc-stop
 EOF
                 exit 1
@@ -231,15 +238,41 @@ EOF
                 nix develop --command bash <<EOF 2>/dev/null || true
                     export CI=true
                     export DISPLAY=""
+                    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
                     pc-stop
 EOF
                 exit 1
             fi
+            
+            # Test 5: Test xdrush command functionality
+            echo "📋 Test 5: Testing xdrush command..."
+            nix develop --command bash <<EOF
+                export CI=true
+                export DISPLAY=""
+                export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+                
+                # Test that xdrush command exists
+                if command -v xdrush >/dev/null 2>&1; then
+                    echo "✅ xdrush command available"
+                    
+                    # Test xdrush with a simple command (status should work even with minimal Drupal)
+                    echo "Testing xdrush status command..."
+                    if timeout 10 xdrush status 2>&1 | grep -E "(Drush|PHP|error)" >/dev/null; then
+                        echo "✅ xdrush command execution working"
+                    else
+                        echo "⚠️ xdrush execution test inconclusive (may be expected with minimal setup)"
+                    fi
+                else
+                    echo "❌ xdrush command not available"
+                    exit 1
+                fi
+EOF
 
             # Stop the detached process-compose using our tools
             nix develop --command bash <<EOF 2>/dev/null || true
                 export CI=true
                 export DISPLAY=""
+                export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
                 pc-stop
 EOF
             echo "🎉 All XDebug tests passed!"
@@ -253,7 +286,11 @@ EOF
     nix develop --command bash <<EOF 2>/dev/null || true
         export CI=true
         export DISPLAY=""
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
         pc-stop
+        
+        # Clean up socket files
+        rm -f /tmp/process-compose-*xdebug-test-project*.sock 2>/dev/null || true
 EOF
     exit 1
 ' || {

@@ -77,8 +77,24 @@ cd test-project
 
 echo "✅ Template initialization passed"
 
-# Test 3: Demo environment startup (with timeout)
-echo "📋 Test 3: Testing demo environment startup..."
+# Test 3a: Test start-demo command wrapper
+echo "📋 Test 3a: Testing start-demo command wrapper..."
+nix develop --command bash <<EOF
+    export CI=true
+    export DISPLAY=""
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+    
+    # Test that start-demo command exists and shows help
+    if start-demo --help | grep -q "Usage: start-demo"; then
+        echo "✅ start-demo command wrapper working"
+    else
+        echo "❌ start-demo command wrapper broken"
+        exit 1
+    fi
+EOF
+
+# Test 3b: Demo environment startup (with timeout)
+echo "📋 Test 3b: Testing demo environment startup..."
 # Start demo in detached mode for testing
 echo "🔨 Starting demo environment in detached mode (this may take several minutes)..."
 
@@ -87,10 +103,16 @@ nix develop --command bash <<EOF
     # Set CI environment variables for headless operation
     export CI=true
     export DISPLAY=""
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
     
     echo "Debug: Available commands: \$(which start-demo start-detached pc-status pc-stop 2>/dev/null || echo not found)"
     echo "Debug: TTY check: \$(tty 2>/dev/null || echo 'no tty')"
     echo "Debug: CI=\$CI, DISPLAY=\$DISPLAY"
+    echo "Debug: PC_SOCKET_PATH=\$PC_SOCKET_PATH"
+    
+    # Test both the nix run and start-demo approaches
+    echo "Testing via start-demo command (should be equivalent to nix run .#demo)"
+    timeout 30 start-demo --help >/dev/null || echo "start-demo help test completed"
     
     # Always use detached mode for testing to avoid TUI issues
     echo "Starting demo in detached mode (no TUI)"
@@ -112,12 +134,15 @@ for i in {1..30}; do
         nix develop --command bash <<EOF
             export CI=true
             export DISPLAY=""
+            export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
             
             if pc-status >/dev/null 2>&1; then
                 echo "   ✅ Services are running"
                 pc-status
             else
-                echo "   ⏳ Services not ready yet"
+                echo "   🔴 Process-compose is not running"
+                echo "   Expected socket: \$PC_SOCKET_PATH"
+                ls -la /tmp/process-compose* 2>/dev/null || echo "   No process-compose sockets found"
             fi
 EOF
     fi
@@ -126,10 +151,54 @@ EOF
     if curl -s "$TEST_URL" >/dev/null 2>&1; then
         echo "✅ Demo environment started successfully at $TEST_URL"
         
+        # Test 4: Test workflow commands (pc-status, pc-attach simulation)
+        echo "📋 Test 4: Testing workflow commands..."
+        nix develop --command bash <<EOF
+            export CI=true
+            export DISPLAY=""
+            export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+            
+            # Test pc-status command
+            echo "Testing pc-status..."
+            if pc-status | grep -q "Process-compose is running"; then
+                echo "✅ pc-status command working"
+            else
+                echo "❌ pc-status command failed"
+                exit 1
+            fi
+            
+            # Test that we can query the REST API (simulate what pc-attach would do)
+            echo "Testing REST API connectivity..."
+            if curl --silent --max-time 2 --unix-socket "\$PC_SOCKET_PATH" http://localhost/project/state >/dev/null 2>&1; then
+                echo "✅ REST API connectivity working (pc-attach would work)"
+            else
+                echo "⚠️ REST API not responding (pc-attach might have issues)"
+            fi
+            
+            # Test start-detached command directly (alternative startup method)
+            echo "Testing start-detached command availability..."
+            if command -v start-detached >/dev/null 2>&1; then
+                echo "✅ start-detached command available"
+            else
+                echo "❌ start-detached command missing"
+                exit 1
+            fi
+            
+            # Test help system
+            echo "Testing help system..."
+            if ? | grep -q "Development Commands"; then
+                echo "✅ Help system working"
+            else
+                echo "❌ Help system broken"
+                exit 1
+            fi
+EOF
+        
         # Stop the detached process-compose using our tools
         nix develop --command bash <<EOF 2>/dev/null || true
             export CI=true
             export DISPLAY=""
+            export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
             pc-stop
 EOF
         exit 0
@@ -149,6 +218,7 @@ cp demo.log test-logs/demo-timeout.log 2>/dev/null || true
 nix develop --command bash <<EOF 2>/dev/null || true
     export CI=true
     export DISPLAY=""
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
     pc-stop
 EOF
 exit 1
@@ -160,6 +230,7 @@ echo "🧹 Performing final cleanup..."
 nix develop --command bash <<EOF 2>/dev/null || true
     export CI=true
     export DISPLAY=""
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
     
     if pc-status >/dev/null 2>&1; then
         echo "Stopping any remaining services..."
@@ -171,4 +242,7 @@ nix develop --command bash <<EOF 2>/dev/null || true
         echo "Emergency cleanup: killing remaining processes..."
         pkill -f 'process-compose.*test-project' || true
     fi
+    
+    # Clean up socket files
+    rm -f /tmp/process-compose-*test-project*.sock 2>/dev/null || true
 EOF

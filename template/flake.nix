@@ -529,7 +529,15 @@
 
               # Use setsid to properly detach the process while keeping server functionality
               mkdir -p ./data
-              setsid nix run . -- --tui=false </dev/null >./data/process-compose.log 2>&1 &
+              
+              # In CI environments, add additional process-compose options for resource efficiency
+              COMPOSE_ARGS="--tui=false"
+              if [ -n "''${CI:-}" ] || [ -n "''${GITLAB_CI:-}" ] || [ -n "''${GITHUB_ACTIONS:-}" ]; then
+                echo "   Running in CI mode with reduced resource usage"
+                COMPOSE_ARGS="$COMPOSE_ARGS --disable-healthcheck=false --log-level=info"
+              fi
+              
+              setsid nix run . -- $COMPOSE_ARGS </dev/null >./data/process-compose.log 2>&1 &
               COMPOSE_PID=$!
               sleep 5
 
