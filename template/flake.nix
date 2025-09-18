@@ -647,23 +647,49 @@
             (writeScriptBin "pc-status" ''
               #!${pkgs.bash}/bin/bash
               SOCKET="''${PC_SOCKET_PATH:-/tmp/process-compose-${projectName}.sock}"
-              if [ -S "$SOCKET" ]; then
-                echo "🟢 Process-compose is running"
-                echo "   Socket: $SOCKET"
-                echo "   Project: ${projectName}"
-
-                # Try to get status via API
-                if command -v curl >/dev/null 2>&1; then
-                  echo ""
-                  echo "API Status:"
-                  curl --silent --max-time 2 --unix-socket "$SOCKET" http://localhost/project/state | \
-                    ${pkgs.jq}/bin/jq -r '  "   Uptime: " + (.upTime/1000000000 | floor | tostring) + "s" +
-                                            "\n   Processes: " + (.runningProcessNum | tostring) + "/" + (.processNum | tostring) + " running" +
-                                            "\n   Version: " + .version' 2>/dev/null || echo "   API unavailable"
-                fi
-              else
+              
+              # Check if socket file exists first
+              if [ ! -e "$SOCKET" ]; then
                 echo "🔴 Process-compose is not running"
                 echo "   Expected socket: $SOCKET"
+                echo "   Socket file does not exist"
+                exit 1
+              fi
+              
+              # Socket file exists, check if it's actually a socket
+              if [ ! -S "$SOCKET" ]; then
+                echo "🔴 Process-compose socket issue"
+                echo "   Socket path: $SOCKET"
+                echo "   File exists but is not a socket"
+                exit 1
+              fi
+              
+              # Socket exists and is a socket, test if it's responding
+              if curl --silent --max-time 3 --unix-socket "$SOCKET" http://localhost/project/state >/dev/null 2>&1; then
+                # API is responding - process-compose is ready
+                echo "🟢 Process-compose is running and ready"
+                echo "   Socket: $SOCKET"
+                echo "   Project: ${projectName}"
+                
+                echo ""
+                echo "API Status:"
+                API_RESPONSE=$(curl --silent --max-time 2 --unix-socket "$SOCKET" http://localhost/project/state 2>/dev/null)
+                if [ -n "$API_RESPONSE" ]; then
+                  echo "$API_RESPONSE" | ${pkgs.jq}/bin/jq -r '
+                    "   Uptime: " + (.upTime/1000000000 | floor | tostring) + "s" +
+                    "\n   Processes: " + (.runningProcessNum | tostring) + "/" + (.processNum | tostring) + " running" +
+                    "\n   Version: " + .version' 2>/dev/null || echo "   API parsing failed"
+                else
+                  echo "   API responded but no data received"
+                fi
+                exit 0
+              else
+                # Socket exists but API not responding - process-compose is starting up
+                echo "🟡 Process-compose is starting up"
+                echo "   Socket: $SOCKET (exists but not ready)"
+                echo "   Project: ${projectName}"
+                echo "   Status: API not responding yet - still initializing"
+                exit 2
               fi
             '')
             (writeScriptBin "pc-attach" ''
@@ -718,6 +744,8 @@
             '')
             # Add zip for composer to avoid warnings about corrupted archives
             unzip
+            # Add curl for API communication with process-compose
+            curl
           ]) ++ localPackages;
           DRUSH_OPTIONS_URI = "http://${domain}:${port}";
 

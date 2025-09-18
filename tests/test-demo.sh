@@ -128,7 +128,7 @@ sleep 15
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
 for i in {1..30}; do
-    # Check status using our process management tools
+    # Check status using our improved process management tools
     if [ $((i % 5)) -eq 0 ]; then
         echo "   Debug: Attempt $i/30 - Checking service status..."
         nix develop --command bash <<EOF
@@ -136,13 +136,26 @@ for i in {1..30}; do
             export DISPLAY=""
             export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
             
-            if pc-status >/dev/null 2>&1; then
-                echo "   ✅ Services are running"
-                pc-status
+            # Use pc-status with its exit codes to distinguish states
+            pc-status
+            STATUS_EXIT=\$?
+            
+            if [ \$STATUS_EXIT -eq 0 ]; then
+                echo "   ✅ Process-compose is fully ready"
+            elif [ \$STATUS_EXIT -eq 2 ]; then
+                echo "   🟡 Process-compose is starting up (socket exists, API not ready)"
+            elif [ \$STATUS_EXIT -eq 1 ]; then
+                echo "   🔴 Process-compose is not running (no socket)"
+                echo "   Checking recent demo logs for early failure:"
+                tail -10 ../demo.log 2>/dev/null || echo "   No demo.log available"
+                
+                # If we've been trying for more than 2 minutes and still no socket, likely failed
+                if [ $i -gt 12 ]; then
+                    echo "   💀 No socket after 2+ minutes - process likely died early"
+                    exit 1
+                fi
             else
-                echo "   🔴 Process-compose is not running"
-                echo "   Expected socket: \$PC_SOCKET_PATH"
-                ls -la /tmp/process-compose* 2>/dev/null || echo "   No process-compose sockets found"
+                echo "   ❓ Unexpected pc-status exit code: \$STATUS_EXIT"
             fi
 EOF
     fi

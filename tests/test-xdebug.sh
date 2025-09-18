@@ -144,19 +144,24 @@ EOF
         if [ $((i % 5)) -eq 0 ]; then
             echo "   Debug: Attempt $i/30 - Checking service status..."
 
-            # Check status using our tools (in devShell context)
+            # Check status using our improved tools (in devShell context)
             nix develop --command bash <<EOF
                 export CI=true
                 export DISPLAY=""
                 export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
 
-                if pc-status >/dev/null 2>&1; then
-                    echo "   ✅ Services are running"
-                    pc-status
+                # Use pc-status with its exit codes to distinguish states
+                pc-status
+                STATUS_EXIT=\$?
+                
+                if [ \$STATUS_EXIT -eq 0 ]; then
+                    echo "   ✅ Process-compose is fully ready"
+                elif [ \$STATUS_EXIT -eq 2 ]; then
+                    echo "   🟡 Process-compose is starting up (socket exists, API not ready)"
+                elif [ \$STATUS_EXIT -eq 1 ]; then
+                    echo "   🔴 Process-compose is not running (no socket)"
                 else
-                    echo "   🔴 Process-compose is not running"
-                    echo "   Expected socket: \$PC_SOCKET_PATH"
-                    ls -la /tmp/process-compose* 2>/dev/null || echo "   No process-compose sockets found"
+                    echo "   ❓ Unexpected pc-status exit code: \$STATUS_EXIT"
                 fi
 EOF
 
