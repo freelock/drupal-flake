@@ -538,7 +538,7 @@
               COMPOSE_ARGS="--tui=false"
               if [ -n "''${CI:-}" ] || [ -n "''${GITLAB_CI:-}" ] || [ -n "''${GITHUB_ACTIONS:-}" ]; then
                 echo "   Running in CI mode with reduced resource usage"
-                COMPOSE_ARGS="$COMPOSE_ARGS --log-level=info"
+                # Note: --log-level flag not supported by current process-compose version
               fi
               
               setsid nix run . -- $COMPOSE_ARGS </dev/null >./data/process-compose.log 2>&1 &
