@@ -32,6 +32,7 @@ let
       xdebug.profiler_output_name = cachegrind.out.%t.%p
       mysqli.default_socket = ${config.dataDir}/../${config.dbSocket}
       pdo_mysql.default_socket = ${config.dataDir}/../${config.dbSocket}
+      ${config.extraPhpConfig or ""}
     '';
   });
 
@@ -108,6 +109,11 @@ in
       type = lib.types.listOf lib.types.str;
       default = [];
       description = "Additional paths to add to PATH environment variable";
+    };
+    extraPhpConfig = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Additional PHP configuration to append to php.ini";
     };
   };
 

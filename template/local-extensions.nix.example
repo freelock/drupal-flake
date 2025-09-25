@@ -87,4 +87,27 @@ in
   extraPaths = [
     "${weasyPrintEnv}/bin"
   ];
+  
+  # Additional PHP configuration to add to php.ini
+  # This is useful for database-specific settings like SQL Server configurations
+  extraPhpConfig = ''
+    # Example: SQL Server driver configuration
+    # pdo_sqlsrv.client_buffer_max_kb_size = 90240
+    # sqlsrv.ClientBufferMaxKBSize = 90240
+    
+    # Example: Other custom PHP settings
+    # opcache.memory_consumption = 256
+    # opcache.max_accelerated_files = 10000
+  '';
+  
+  # Additional shell hook configuration for environment setup
+  # This runs when entering the development shell
+  extraShellHook = ''
+    # Example: Set up local ODBC configuration for SQL Server
+    # export ODBCSYSINI="$PWD/data/odbc"
+    # export ODBCINSTINI="$PWD/data/odbc/odbcinst.ini"
+    
+    # Example: Other environment variables
+    # export CUSTOM_VAR="value"
+  '';
 }

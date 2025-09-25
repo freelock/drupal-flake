@@ -34,6 +34,8 @@
               extraNixPackages = [];
               customTools = [];
               extraPaths = [];
+              extraPhpConfig = "";
+              extraShellHook = "";
             };
 
           # Function to read env vars with defaults
@@ -131,6 +133,8 @@
               extraPhpExtensions = localExtensions.extraPhpExtensions or [];
               # Pass extra paths from local extensions
               extraPaths = localExtensions.extraPaths or [];
+              # Pass extra PHP configuration from local extensions
+              extraPhpConfig = localExtensions.extraPhpConfig or "";
               # Set PHP timeout
               phpTimeout = phpTimeout;
             };
@@ -761,12 +765,15 @@
             
             # Create custom PHP ini file with correct MySQL socket paths  
             mkdir -p "$PWD/data/php-cli"
-            # Create custom PHP ini with only MySQL socket overrides
+            # Create custom PHP ini with MySQL socket overrides and any extra config
             # We'll still rely on Nix to load extensions via PHP_INI_SCAN_DIR
             cat > "$PWD/data/php-cli/mysql-socket.ini" << INI_EOF
 ; MySQL socket configuration override for testing
 mysqli.default_socket = $DB_SOCKET
 pdo_mysql.default_socket = $DB_SOCKET
+
+; Additional PHP configuration from local extensions
+${localExtensions.extraPhpConfig or ""}
 INI_EOF
             
             # Get the default Nix scan directory and append our custom one
@@ -801,6 +808,10 @@ SCRIPT_EOF
             export DOCROOT="${docroot}"
             export SIMPLETEST_BASE_URL="http://${domain}:${port}"
             export SIMPLETEST_DB="mysql://drupal@localhost/drupal?unix_socket=$PWD/${dbSocket}"
+            
+            # Additional shell hook configuration from local extensions
+            ${localExtensions.extraShellHook or ""}
+            
             echo "Entering development environment for ${projectName}"
             echo "Use '?' to see the commands provided in this flake."
           '';
