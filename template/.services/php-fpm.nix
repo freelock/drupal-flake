@@ -22,6 +22,11 @@ let
       max_execution_time = ${toString config.phpTimeout}
       display_errors = On
       error_reporting = E_ALL
+      ; File upload settings
+      file_uploads = On
+      upload_max_filesize = 100M
+      post_max_size = 100M
+      max_file_uploads = 20
       xdebug.mode = debug
       xdebug.start_with_request = trigger
       xdebug.client_host = localhost

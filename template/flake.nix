@@ -151,6 +151,9 @@
                   root ${docroot};
                   index index.php index.html index.htm;
 
+                  # Allow large file uploads (must match PHP settings)
+                  client_max_body_size 100M;
+
                   # logging
                   access_log data/${projectName}-nginx/${projectName}-access.log;
                   error_log data/${projectName}-nginx/${projectName}-error.log;
