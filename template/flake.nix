@@ -635,6 +635,20 @@
                   $PROJECT_ROOT/vendor/bin/drush.php "$@"
               fi
             '')
+            (writeScriptBin "xphpunit" ''
+              #!${pkgs.bash}/bin/bash
+              # PHPUnit wrapper with Xdebug debugging enabled
+              # Create logs directory if it doesn't exist  
+              mkdir -p "$PROJECT_ROOT/data/logs"
+              mkdir -p "$PROJECT_ROOT/data/xdebug_profiles"
+
+              # Run PHPUnit with Xdebug debugging enabled
+              php -d xdebug.mode=debug \
+                -d xdebug.start_with_request=yes \
+                -d xdebug.client_host=localhost \
+                -d xdebug.client_port=9003 \
+                "$PROJECT_ROOT/vendor/bin/phpunit" "$@"
+            '')
             (writeScriptBin "xdebug-profile-on" ''
               #!${pkgs.bash}/bin/bash
               echo "⚠️  XDebug profiling requires manual configuration."
@@ -736,6 +750,7 @@
               echo -e "\033[1;32mpc-status\033[0m               Check process-compose status and socket"
               echo -e "\033[1;32mpc-attach\033[0m               Attach to running process-compose TUI"
               echo -e "\033[1;32mxdrush\033[0m                  Run Drush with Xdebug enabled"
+              echo -e "\033[1;32mxphpunit\033[0m                Run PHPUnit with Xdebug enabled"
               echo -e "\033[1;32mxdebug-profile-on\033[0m       Enable XDebug profiling (requires restart)"
               echo -e "\033[1;32mxdebug-profile-off\033[0m      Disable XDebug profiling (requires restart)"
               echo -e "\033[1;32mnix-settings\033[0m            Add/include settings.nix.php (done automatically with start)"
@@ -765,45 +780,6 @@
             export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
             export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"  # Backward compatibility
             export PC_STATUS_FILE="/tmp/pc-running-${projectName}"
-            
-            # Create custom PHP ini file with correct MySQL socket paths  
-            mkdir -p "$PWD/data/php-cli"
-            # Create custom PHP ini with MySQL socket overrides and any extra config
-            # We'll still rely on Nix to load extensions via PHP_INI_SCAN_DIR
-            cat > "$PWD/data/php-cli/mysql-socket.ini" << INI_EOF
-; MySQL socket configuration override for testing
-mysqli.default_socket = $DB_SOCKET
-pdo_mysql.default_socket = $DB_SOCKET
-
-; Additional PHP configuration from local extensions
-${localExtensions.extraPhpConfig or ""}
-INI_EOF
-            
-            # Get the default Nix scan directory and append our custom one
-            NIX_SCAN_DIR=$(php --ini | grep "Scan for additional .ini files in:" | cut -d: -f2 | xargs)
-            mkdir -p "$PWD/data/php-cli/scan-dir"
-            cp "$PWD/data/php-cli/mysql-socket.ini" "$PWD/data/php-cli/scan-dir/99-mysql-socket.ini"
-            export PHP_INI_SCAN_DIR="$NIX_SCAN_DIR:$PWD/data/php-cli/scan-dir"
-            
-            # Create xphpunit wrapper for debugging (similar to xdrush)
-            cat > "$PWD/data/php-cli/xphpunit" << 'SCRIPT_EOF'
-#!/usr/bin/env bash
-# PHPUnit wrapper with Xdebug debugging enabled
-# Create logs directory if it doesn't exist  
-mkdir -p "$PWD/data/logs"
-mkdir -p "$PWD/data/xdebug_profiles"
-
-# Run PHPUnit with Xdebug debugging enabled
-php -d xdebug.mode=debug \
-  -d xdebug.start_with_request=yes \
-  -d xdebug.client_host=localhost \
-  -d xdebug.client_port=9003 \
-  "$PWD/vendor/bin/phpunit" "$@"
-SCRIPT_EOF
-            chmod +x "$PWD/data/php-cli/xphpunit"
-            
-            # Add our wrapper directory to PATH for xphpunit
-            export PATH="$PWD/data/php-cli:$PWD/vendor/bin:$PATH"
             
             # PHPUnit environment variables
             export DOMAIN="${domain}"
