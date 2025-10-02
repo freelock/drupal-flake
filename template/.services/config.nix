@@ -15,7 +15,7 @@ let
 
 
     extraConfig = ''
-      memory_limit = 512M
+      memory_limit = ${config.maxRam}
       display_errors = On
       error_reporting = E_ALL
 
@@ -47,6 +47,11 @@ in
       type = lib.types.str;
       default = "drupal/cms";
       description = "Drupal package to install";
+    };
+    maxRam = lib.mkOption {
+      type = lib.types.str;
+      default = "512M";
+      description = "PHP memory limit";
     };
   };
   config = {

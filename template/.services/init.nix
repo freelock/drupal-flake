@@ -15,7 +15,7 @@ let
 
 
     extraConfig = ''
-      memory_limit = 512M
+      memory_limit = ${config.maxRam}
       display_errors = On
       error_reporting = E_ALL
       xdebug.mode = debug
@@ -73,6 +73,11 @@ in
       default = "";
       description = "Custom project name to use (if provided, will create .env file)";
     };
+    maxRam = lib.mkOption {
+      type = lib.types.str;
+      default = "512M";
+      description = "PHP memory limit";
+    };
   };
   config = {
     package = pkgs.writeScriptBin "init" ''
@@ -94,9 +99,45 @@ in
         
         echo "Installing Drupal package: $DRUPAL_PKG..."
         composer create-project $DRUPAL_PKG cms $COMPOSER_OPTS
-        mv cms/* ./
-        mv cms/.* ./
-        rmdir cms
+        
+        # Move files from cms directory, handling conflicts carefully
+        for item in cms/*; do
+          [ -e "$item" ] || continue  # Skip if glob didn't match anything
+          basename_item=$(basename "$item")
+          if [ -e "$basename_item" ]; then
+            echo "Warning: $basename_item already exists, merging contents..."
+            if [ -d "$item" ] && [ -d "$basename_item" ]; then
+              # Merge directories
+              cp -r "$item"/* "$basename_item"/ 2>/dev/null || true
+              cp -r "$item"/.[^.]* "$basename_item"/ 2>/dev/null || true
+            else
+              # Replace files
+              rm -rf "$basename_item"
+              mv "$item" ./
+            fi
+          else
+            mv "$item" ./
+          fi
+        done
+        
+        # Move hidden files (excluding . and ..)
+        for item in cms/.[^.]*; do
+          [ -e "$item" ] || continue  # Skip if glob didn't match anything
+          basename_item=$(basename "$item")
+          if [ -e "$basename_item" ]; then
+            echo "Warning: hidden file $basename_item already exists, replacing..."
+            rm -rf "$basename_item"
+          fi
+          mv "$item" ./
+        done
+        
+        # Remove cms directory if empty, otherwise warn
+        if rmdir cms 2>/dev/null; then
+          echo "Cleaned up cms directory"
+        else
+          echo "Warning: cms directory not empty, contents:"
+          ls -la cms/ || true
+        fi
         composer install
 
         # Copy settings file without comments and enable local settings include

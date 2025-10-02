@@ -73,6 +73,7 @@
           phpPkgs = if phpVersion == "php74" then pkgs-php74 else pkgs;
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
           phpTimeout = lib.strings.toInt (getEnvWithDefault "PHP_TIMEOUT" "60");
+          maxRam = getEnvWithDefault "MAX_RAM" "512M";
           docroot = getEnvWithDefault "DOCROOT" "web";
           # Calculate the relative path from docroot to project root
           projectRoot =
@@ -106,14 +107,29 @@
 
             services.mysql."${projectName}-db" = {
               enable = true;
-              settings.mysqld = {
+              settings.mysqld = lib.recursiveUpdate {
                 # Optional: Set other MySQL settings
                 # port = 3307;
                 # bind_address = "127.0.0.1";
                 skip_grant_tables = true;
                 skip_networking = true;
                 transaction_isolation = "READ-COMMITTED";
-              };
+              } (lib.optionalAttrs (getEnvWithDefault "MYSQL_INNODB_BUFFER_POOL_SIZE" "" != "") {
+                # CI/Environment-specific MySQL resource constraints
+                innodb_buffer_pool_size = getEnvWithDefault "MYSQL_INNODB_BUFFER_POOL_SIZE" "128M";
+                innodb_log_file_size = getEnvWithDefault "MYSQL_INNODB_LOG_FILE_SIZE" "32M";
+                innodb_log_buffer_size = getEnvWithDefault "MYSQL_INNODB_LOG_BUFFER_SIZE" "8M";
+                key_buffer_size = getEnvWithDefault "MYSQL_KEY_BUFFER_SIZE" "32M";
+                max_connections = lib.strings.toInt (getEnvWithDefault "MYSQL_MAX_CONNECTIONS" "50");
+                table_open_cache = lib.strings.toInt (getEnvWithDefault "MYSQL_TABLE_OPEN_CACHE" "128");
+                sort_buffer_size = getEnvWithDefault "MYSQL_SORT_BUFFER_SIZE" "1M";
+                read_buffer_size = getEnvWithDefault "MYSQL_READ_BUFFER_SIZE" "512K";
+                read_rnd_buffer_size = getEnvWithDefault "MYSQL_READ_RND_BUFFER_SIZE" "1M";
+                query_cache_size = getEnvWithDefault "MYSQL_QUERY_CACHE_SIZE" "32M";
+                thread_stack = getEnvWithDefault "MYSQL_THREAD_STACK" "256K";
+                tmp_table_size = getEnvWithDefault "MYSQL_TMP_TABLE_SIZE" "32M";
+                max_heap_table_size = getEnvWithDefault "MYSQL_MAX_HEAP_TABLE_SIZE" "32M";
+              });
               initialDatabases = [
                 {
                   name = "drupal"; # Database name
@@ -135,8 +151,9 @@
               extraPaths = localExtensions.extraPaths or [];
               # Pass extra PHP configuration from local extensions
               extraPhpConfig = localExtensions.extraPhpConfig or "";
-              # Set PHP timeout
+              # Set PHP timeout and memory limit
               phpTimeout = phpTimeout;
+              maxRam = maxRam;
             };
             services.nginx."${projectName}-nginx" = {
               enable = true;
@@ -172,8 +189,8 @@
                     fastcgi_param PATH_INFO $fastcgi_path_info;
                     fastcgi_param QUERY_STRING $query_string;
                     fastcgi_intercept_errors on;
-		                # Set read timeout to an hour, for debugging
-                    fastcgi_read_timeout 3600;
+		                # Set read timeout based on PHP timeout + buffer
+                    fastcgi_read_timeout ${toString (phpTimeout + 30)};
 		                # Drupal sends big headers in dev mode, need to increase buffer size
                     fastcgi_buffer_size 128k;
                     fastcgi_buffers 4 256k;
@@ -420,6 +437,7 @@
               composerOptions = "";
               customProjectName = "";
               dbSocket = dbSocket;
+              maxRam = maxRam;
             };
             settings.processes.cms = {
               readiness_probe = {
@@ -456,6 +474,7 @@
             services.config."cms" = {
               enable = true;
               projectName = projectName;
+              maxRam = maxRam;
             };
             settings.processes.cms = {
               depends_on = {

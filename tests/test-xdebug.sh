@@ -65,6 +65,19 @@ nix flake init -t ../
 cat > .env << "EOF"
 DOCROOT=web
 PROJECT_NAME=xdebug-test-project
+
+# CI-specific resource constraints for MySQL
+MYSQL_INNODB_BUFFER_POOL_SIZE=64M
+MYSQL_INNODB_LOG_FILE_SIZE=16M
+MYSQL_KEY_BUFFER_SIZE=16M
+MYSQL_MAX_CONNECTIONS=20
+MYSQL_TABLE_OPEN_CACHE=64
+MYSQL_QUERY_CACHE_SIZE=16M
+MYSQL_TMP_TABLE_SIZE=16M
+MYSQL_MAX_HEAP_TABLE_SIZE=16M
+
+# Reduce PHP memory for CI
+MAX_RAM=256M
 EOF
 
 # Create minimal Drupal structure that the default target expects (in web dir)

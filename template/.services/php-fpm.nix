@@ -18,7 +18,7 @@ let
 
 
     extraConfig = ''
-      memory_limit = 512M
+      memory_limit = ${config.maxRam}
       max_execution_time = ${toString config.phpTimeout}
       display_errors = On
       error_reporting = E_ALL
@@ -109,6 +109,11 @@ in
       type = lib.types.int;
       default = 60;
       description = "PHP max execution time in seconds";
+    };
+    maxRam = lib.mkOption {
+      type = lib.types.str;
+      default = "512M";
+      description = "PHP memory limit";
     };
     extraPaths = lib.mkOption {
       type = lib.types.listOf lib.types.str;
