@@ -132,7 +132,8 @@ timeout $TEST_TIMEOUT bash -c '
         # Set CI environment variables for headless operation
         export CI=true
         export DISPLAY=""
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+        export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
 
         echo "Debug: Available commands: \`which start-detached pc-status pc-stop 2>/dev/null || echo not found\`"
         echo "Debug: TTY check: `tty 2>/dev/null || echo no tty`"
@@ -151,6 +152,17 @@ EOF
     echo "⏳ Waiting for services to initialize..."
     sleep 15
 
+    # Wait for socket to appear (additional safety check)
+    echo "⏳ Waiting for socket file to be created..."
+    for j in {1..10}; do
+        if [ -S "/tmp/process-compose-xdebug-test-project.sock" ]; then
+            echo "✅ Socket file created"
+            break
+        fi
+        echo "   Socket attempt $j/10..."
+        sleep 2
+    done
+
     # Wait for services to be ready
     for i in {1..30}; do
         # Use our process management tools for status checking
@@ -161,7 +173,8 @@ EOF
             nix develop --command bash <<EOF
                 export CI=true
                 export DISPLAY=""
-                export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+                export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
 
                 # Use pc-status with its exit codes to distinguish states
                 pc-status
@@ -198,7 +211,8 @@ EOF
                 nix develop --command bash <<EOF 2>/dev/null || true
                     export CI=true
                     export DISPLAY=""
-                    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+                    export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
                     pc-stop
 EOF
                 exit 1
@@ -240,7 +254,8 @@ EOF
                 nix develop --command bash <<EOF 2>/dev/null || true
                     export CI=true
                     export DISPLAY=""
-                    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+                    export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
                     pc-stop
 EOF
                 exit 1
@@ -256,7 +271,8 @@ EOF
                 nix develop --command bash <<EOF 2>/dev/null || true
                     export CI=true
                     export DISPLAY=""
-                    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+                    export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
                     pc-stop
 EOF
                 exit 1
@@ -267,7 +283,8 @@ EOF
             nix develop --command bash <<EOF
                 export CI=true
                 export DISPLAY=""
-                export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+                export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
                 
                 # Test that xdrush command exists
                 if command -v xdrush >/dev/null 2>&1; then
@@ -290,7 +307,8 @@ EOF
             nix develop --command bash <<EOF 2>/dev/null || true
                 export CI=true
                 export DISPLAY=""
-                export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+                export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
                 pc-stop
 EOF
             echo "🎉 All XDebug tests passed!"
@@ -304,7 +322,8 @@ EOF
     nix develop --command bash <<EOF 2>/dev/null || true
         export CI=true
         export DISPLAY=""
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-xdebug-test-project}.sock"
+        export PROJECT_NAME=xdebug-test-project
+        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
         pc-stop
         
         # Clean up socket files
