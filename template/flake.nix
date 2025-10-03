@@ -556,14 +556,17 @@
               # Use setsid to properly detach the process while keeping server functionality
               mkdir -p ./data
               
-              # In CI environments, add additional process-compose options for resource efficiency
-              COMPOSE_ARGS="--tui=false"
+              # In CI environments, ensure socket directory exists and log more info
               if [ -n "''${CI:-}" ] || [ -n "''${GITLAB_CI:-}" ] || [ -n "''${GITHUB_ACTIONS:-}" ]; then
                 echo "   Running in CI mode with reduced resource usage"
-                # Note: --log-level flag not supported by current process-compose version
+                # Ensure socket directory exists
+                mkdir -p /tmp
+                # Ensure socket path is set for CI
+                export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
+                export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"
               fi
               
-              setsid nix run . -- $COMPOSE_ARGS </dev/null >./data/process-compose.log 2>&1 &
+              setsid nix run . </dev/null >./data/process-compose.log 2>&1 &
               COMPOSE_PID=$!
               sleep 5
 
@@ -799,6 +802,11 @@
             export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
             export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"  # Backward compatibility
             export PC_STATUS_FILE="/tmp/pc-running-${projectName}"
+            
+            # Disable TUI in CI environments using process-compose's built-in env var
+            if [ -n "''${CI:-}" ] || [ -n "''${GITLAB_CI:-}" ] || [ -n "''${GITHUB_ACTIONS:-}" ]; then
+              export PC_DISABLE_TUI=1
+            fi
             
             # PHPUnit environment variables
             export DOMAIN="${domain}"

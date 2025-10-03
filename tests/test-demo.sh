@@ -136,7 +136,27 @@ for j in {1..10}; do
         echo "✅ Socket file created"
         break
     fi
-    echo "   Socket attempt $j/10..."
+    
+    # Check if the process is still running
+    if [ -f "../demo.log" ]; then
+        DEMO_PID=$(grep "Demo started in background (PID:" ../demo.log | tail -1 | sed 's/.*PID: \([0-9]*\).*/\1/')
+        if [ -n "$DEMO_PID" ]; then
+            if ! kill -0 "$DEMO_PID" 2>/dev/null; then
+                echo "💀 Process-compose process (PID: $DEMO_PID) has died early"
+                echo "   Recent demo logs:"
+                tail -15 ../demo.log
+                echo "   Process logs (if available):"
+                tail -15 ./data/process-compose.log 2>/dev/null || echo "   No process-compose.log found"
+                exit 1
+            else
+                echo "   Socket attempt $j/10... (PID $DEMO_PID still running)"
+            fi
+        else
+            echo "   Socket attempt $j/10... (no PID found)"
+        fi
+    else
+        echo "   Socket attempt $j/10..."
+    fi
     sleep 2
 done
 

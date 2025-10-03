@@ -121,8 +121,14 @@ cd xdebug-test-project
 
 echo "✅ Template initialized for XDebug test with PHP files ready"
 
-# Start default environment (now has minimal Drupal structure)
+# Start default environment (now has minimal Drupal structure)  
 echo "⏳ Starting default environment for XDebug test..."
+
+# Ensure environment variables are properly exported before timeout
+export CI=true
+export DISPLAY=""
+export PROJECT_NAME="xdebug-test-project"
+
 timeout $TEST_TIMEOUT bash -c '
     # Start using the new process management tools
     echo "🚀 Starting development environment in detached mode..."
@@ -133,18 +139,12 @@ timeout $TEST_TIMEOUT bash -c '
         export CI=true
         export DISPLAY=""
         export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
-
-        echo "Debug: Available commands: \`which start-detached pc-status pc-stop 2>/dev/null || echo not found\`"
-        echo "Debug: TTY check: `tty 2>/dev/null || echo no tty`"
-        echo "Debug: CI=\$CI, DISPLAY=\$DISPLAY"
-        echo "Debug: PC_SOCKET_PATH=\$PC_SOCKET_PATH"
+        export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
 
         # Start services in background (always detached for testing)
         start-detached
 
         # Check status immediately
-        echo "   Debug: Checking status after start..."
         pc-status || echo "   pc-status not responding immediately"
 EOF
 
@@ -167,29 +167,7 @@ EOF
     for i in {1..30}; do
         # Use our process management tools for status checking
         if [ $((i % 5)) -eq 0 ]; then
-            echo "   Debug: Attempt $i/30 - Checking service status..."
-
-            # Check status using our improved tools (in devShell context)
-            nix develop --command bash <<EOF
-                export CI=true
-                export DISPLAY=""
-                export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
-
-                # Use pc-status with its exit codes to distinguish states
-                pc-status
-                STATUS_EXIT=\$?
-                
-                if [ \$STATUS_EXIT -eq 0 ]; then
-                    echo "   ✅ Process-compose is fully ready"
-                elif [ \$STATUS_EXIT -eq 2 ]; then
-                    echo "   🟡 Process-compose is starting up (socket exists, API not ready)"
-                elif [ \$STATUS_EXIT -eq 1 ]; then
-                    echo "   🔴 Process-compose is not running (no socket)"
-                else
-                    echo "   ❓ Unexpected pc-status exit code: \$STATUS_EXIT"
-                fi
-EOF
+            echo "   Attempt $i/30 - Checking service status..."
 
             # Check basic connectivity
             echo "   Testing connectivity to $TEST_URL"
@@ -198,6 +176,37 @@ EOF
 
         if curl -s "$TEST_URL" >/dev/null 2>&1; then
             echo "✅ Environment started for XDebug test"
+            
+            # Additional health check - wait for PHP-FPM to be ready
+            echo "🔍 Performing additional service health checks..."
+            
+            # Verify file system setup
+            echo "   Verifying test files in $(pwd)/web/"
+            
+            PHP_READY=false
+            for k in {1..12}; do
+                # Test basic PHP execution
+                if curl -s "$TEST_URL/index.php" | grep -q "PHP Version" 2>/dev/null; then
+                    echo "✅ PHP-FPM and Nginx are serving PHP files"
+                    PHP_READY=true
+                    break
+                fi
+                echo "   PHP service check $k/12..."
+                sleep 5
+            done
+            
+            if [ "$PHP_READY" = "false" ]; then
+                echo "❌ PHP services not ready after 1 minute"
+                echo "   HTTP status for /index.php: $(curl -s -o /dev/null -w "%{http_code}" "$TEST_URL/index.php")"
+                nix develop --command bash <<EOF 2>/dev/null || true
+                    export CI=true
+                    export DISPLAY=""
+                    export PROJECT_NAME=xdebug-test-project
+                    export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
+                    pc-stop
+EOF
+                exit 1
+            fi
 
             # Test 2: Check XDebug configuration via CLI
             echo "📋 Test 2: Checking XDebug CLI configuration..."
@@ -212,7 +221,7 @@ EOF
                     export CI=true
                     export DISPLAY=""
                     export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
+                    export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
                     pc-stop
 EOF
                 exit 1
@@ -222,12 +231,12 @@ EOF
             echo "📋 Test 3: Checking XDebug web configuration..."
 
             # Test XDebug web configuration
-            XDEBUG_RESPONSE=$(curl -s "'$TEST_URL'/xdebug-test.php")
+            XDEBUG_RESPONSE=$(curl -s "'"$TEST_URL"'/xdebug-test.php")
 
             # Also try without the leading slash
             if echo "$XDEBUG_RESPONSE" | grep -q "404"; then
                 echo "  Trying alternative URL format..."
-                XDEBUG_RESPONSE=$(curl -s "'$TEST_URL'xdebug-test.php")
+                XDEBUG_RESPONSE=$(curl -s "'"$TEST_URL"'xdebug-test.php")
                 echo "  Alternative response: $(echo "$XDEBUG_RESPONSE" | head -3)"
             fi
             if echo "$XDEBUG_RESPONSE" | grep -q "XDebug loaded: YES"; then
@@ -255,7 +264,7 @@ EOF
                     export CI=true
                     export DISPLAY=""
                     export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
+                    export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
                     pc-stop
 EOF
                 exit 1
@@ -263,7 +272,7 @@ EOF
 
             # Test 4: Test XDebug trigger mechanism
             echo "📋 Test 4: Testing XDebug trigger mechanism..."
-            TRIGGER_RESPONSE=$(curl -s "'$TEST_URL'/xdebug-test.php?XDEBUG_SESSION_START=1")
+            TRIGGER_RESPONSE=$(curl -s "'"$TEST_URL"'/xdebug-test.php?XDEBUG_SESSION_START=1")
             if echo "$TRIGGER_RESPONSE" | grep -q "XDebug loaded: YES"; then
                 echo "✅ XDebug trigger mechanism working"
             else
@@ -272,7 +281,7 @@ EOF
                     export CI=true
                     export DISPLAY=""
                     export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
+                    export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
                     pc-stop
 EOF
                 exit 1
@@ -284,7 +293,7 @@ EOF
                 export CI=true
                 export DISPLAY=""
                 export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
+                export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
                 
                 # Test that xdrush command exists
                 if command -v xdrush >/dev/null 2>&1; then
@@ -308,7 +317,7 @@ EOF
                 export CI=true
                 export DISPLAY=""
                 export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
+                export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
                 pc-stop
 EOF
             echo "🎉 All XDebug tests passed!"
@@ -323,7 +332,7 @@ EOF
         export CI=true
         export DISPLAY=""
         export PROJECT_NAME=xdebug-test-project
-        export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
+        export PC_SOCKET_PATH="/tmp/process-compose-xdebug-test-project.sock"
         pc-stop
         
         # Clean up socket files
