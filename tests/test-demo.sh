@@ -82,7 +82,9 @@ echo "📋 Test 3a: Testing start-demo command wrapper..."
 nix develop --command bash <<EOF
     export CI=true
     export DISPLAY=""
-    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+    # Set PROJECT_NAME to match what the demo process expects (default: drupal-demo)
+    export PROJECT_NAME=drupal-demo
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
     
     # Test that start-demo command exists and shows help
     if start-demo --help | grep -q "Usage: start-demo"; then
@@ -103,7 +105,9 @@ nix develop --command bash <<EOF
     # Set CI environment variables for headless operation
     export CI=true
     export DISPLAY=""
-    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+    # Set PROJECT_NAME to match what the demo process expects (default: drupal-demo)
+    export PROJECT_NAME=drupal-demo
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
     
     echo "Debug: Available commands: \$(which start-demo start-detached pc-status pc-stop 2>/dev/null || echo not found)"
     echo "Debug: TTY check: \$(tty 2>/dev/null || echo 'no tty')"
@@ -125,6 +129,17 @@ EOF
 echo "⏳ Waiting for services to initialize..."
 sleep 15
 
+# Wait for socket to appear (additional safety check)
+echo "⏳ Waiting for socket file to be created..."
+for j in {1..10}; do
+    if [ -S "/tmp/process-compose-drupal-demo.sock" ]; then
+        echo "✅ Socket file created"
+        break
+    fi
+    echo "   Socket attempt $j/10..."
+    sleep 2
+done
+
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
 for i in {1..30}; do
@@ -134,7 +149,9 @@ for i in {1..30}; do
         nix develop --command bash <<EOF
             export CI=true
             export DISPLAY=""
-            export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+            # Set PROJECT_NAME to match what the demo process expects (default: drupal-demo)
+    export PROJECT_NAME=drupal-demo
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
             
             # Use pc-status with its exit codes to distinguish states
             pc-status
@@ -169,7 +186,9 @@ EOF
         nix develop --command bash <<EOF
             export CI=true
             export DISPLAY=""
-            export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+            # Set PROJECT_NAME to match what the demo process expects (default: drupal-demo)
+    export PROJECT_NAME=drupal-demo
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
             
             # Test pc-status command
             echo "Testing pc-status..."
@@ -182,7 +201,7 @@ EOF
             
             # Test that we can query the REST API (simulate what pc-attach would do)
             echo "Testing REST API connectivity..."
-            if curl --silent --max-time 2 --unix-socket "\$PC_SOCKET_PATH" http://localhost/project/state >/dev/null 2>&1; then
+            if curl --silent --max-time 2 --unix-socket "/tmp/process-compose-drupal-demo.sock" http://localhost/project/state >/dev/null 2>&1; then
                 echo "✅ REST API connectivity working (pc-attach would work)"
             else
                 echo "⚠️ REST API not responding (pc-attach might have issues)"
@@ -211,7 +230,9 @@ EOF
         nix develop --command bash <<EOF 2>/dev/null || true
             export CI=true
             export DISPLAY=""
-            export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+            # Set PROJECT_NAME to match what the demo process expects (default: drupal-demo)
+    export PROJECT_NAME=drupal-demo
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
             pc-stop
 EOF
         exit 0
@@ -231,7 +252,9 @@ cp demo.log test-logs/demo-timeout.log 2>/dev/null || true
 nix develop --command bash <<EOF 2>/dev/null || true
     export CI=true
     export DISPLAY=""
-    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+    # Set PROJECT_NAME to match what the demo process expects (default: drupal-demo)
+    export PROJECT_NAME=drupal-demo
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
     pc-stop
 EOF
 exit 1
@@ -243,7 +266,9 @@ echo "🧹 Performing final cleanup..."
 nix develop --command bash <<EOF 2>/dev/null || true
     export CI=true
     export DISPLAY=""
-    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME:-test-project}.sock"
+    # Set PROJECT_NAME to match what the demo process expects (default: drupal-demo)
+    export PROJECT_NAME=drupal-demo
+    export PC_SOCKET_PATH="/tmp/process-compose-\${PROJECT_NAME}.sock"
     
     if pc-status >/dev/null 2>&1; then
         echo "Stopping any remaining services..."
