@@ -276,6 +276,7 @@
             no-server = false;
             # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
             use-uds = true;
+	    tui = false;
           };
         };
 
@@ -565,6 +566,7 @@
                 export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
                 export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"
               fi
+              export PC_DISABLE_TUI=1
               
               setsid nix run . </dev/null >./data/process-compose.log 2>&1 &
               COMPOSE_PID=$!
