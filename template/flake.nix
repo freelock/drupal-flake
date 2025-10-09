@@ -276,7 +276,6 @@
             no-server = false;
             # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
             use-uds = true;
-	    tui = false;
           };
         };
 
