@@ -54,7 +54,7 @@ let
       php.packages.phpstan
       php.packages.php-codesniffer
       finalPkgs.phpunit
-      finalPkgs.mysql-client
+      finalPkgs.mariadb.client
     ];
 
   phpEnv = finalPkgs.buildEnv {
