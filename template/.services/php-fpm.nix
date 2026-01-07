@@ -52,7 +52,8 @@ let
       php
       php.packages.composer
       php.packages.phpstan
-      php.packages.php-codesniffer
+      # codesniffer package is broken at the moment
+      # php.packages.php-codesniffer
       finalPkgs.phpunit
       finalPkgs.mariadb.client
     ];
