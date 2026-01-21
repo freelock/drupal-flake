@@ -46,7 +46,7 @@ let
     if phpVersion == "php74" then [
       php
       php.packages.composer
-      finalPkgs.mysql-client
+      finalPkgs.mariadb.client
     ] ++ lib.optional (finalPkgs ? drush) finalPkgs.drush
     else [
       php
