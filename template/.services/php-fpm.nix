@@ -51,7 +51,7 @@ let
     else [
       php
       php.packages.composer
-      php.packages.phpstan
+      phpstan
       # codesniffer package is broken at the moment
       # php.packages.php-codesniffer
       finalPkgs.phpunit
