@@ -43,26 +43,26 @@
             let
               envValue = builtins.getEnv name;
               envFileStr = builtins.readFile (toString ./.env);
-              envFile = builtins.tryEval (
-                if builtins.pathExists ./.env
-                then builtins.listToAttrs (
-                  builtins.map (line:
-                    let pair = builtins.match "([^=]+)=(.*)" line;
-                    in if pair == null then null
-                      else { name = builtins.head pair; value = builtins.elemAt pair 1; }
-                  ) (builtins.filter (line: line != "" && !(lib.hasPrefix "#" line))
-                    (lib.splitString "\n" envFileStr))
-                )
-                else {}
-              );
-              envVars = if envFile.success then envFile.value
-                else {};
-            in
-            if envValue != ""
-              then envValue
-              else if builtins.hasAttr name envVars
-                then envVars.${name}
-                else default;
+              envFile = builtins.tryEval (if builtins.pathExists ./.env then
+                builtins.listToAttrs (builtins.map (line:
+                  let pair = builtins.match "([^=]+)=(.*)" line;
+                  in if pair == null then
+                    null
+                  else {
+                    name = builtins.head pair;
+                    value = builtins.elemAt pair 1;
+                  }) (builtins.filter
+                    (line: line != "" && !(lib.hasPrefix "#" line))
+                    (lib.splitString "\n" envFileStr)))
+              else
+                { });
+              envVars = if envFile.success then envFile.value else { };
+            in if envValue != "" then
+              envValue
+            else if builtins.hasAttr name envVars then
+              envVars.${name}
+            else
+              default;
 
           # Configuration with environment fallbacks
           projectName = getEnvWithDefault "PROJECT_NAME" "drupal-demo";
@@ -76,12 +76,15 @@
           maxRam = getEnvWithDefault "MAX_RAM" "512M";
           docroot = getEnvWithDefault "DOCROOT" "web";
           # Calculate the relative path from docroot to project root
-          projectRoot =
-            if docroot == "." then "."
-            else if builtins.match "^[^/]+$" docroot != null then "../"
-            else "../" + builtins.concatStringsSep "" (builtins.genList (i: "../") (
-              (builtins.length (builtins.filter (x: x != "") (lib.splitString "/" docroot))) - 1
-            ));
+          projectRoot = if docroot == "." then
+            "."
+          else if builtins.match "^[^/]+$" docroot != null then
+            "../"
+          else
+            "../" + builtins.concatStringsSep "" (builtins.genList (i: "../")
+              ((builtins.length
+                (builtins.filter (x: x != "") (lib.splitString "/" docroot)))
+                - 1));
           # Use relative path, but php-fpm.nix should handle the absolute path conversion
           dbSocket = getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
 
@@ -114,27 +117,38 @@
                 skip_grant_tables = true;
                 skip_networking = true;
                 transaction_isolation = "READ-COMMITTED";
-              } (lib.optionalAttrs (getEnvWithDefault "MYSQL_INNODB_BUFFER_POOL_SIZE" "" != "") {
-                # CI/Environment-specific MySQL resource constraints
-                innodb_buffer_pool_size = getEnvWithDefault "MYSQL_INNODB_BUFFER_POOL_SIZE" "128M";
-                innodb_log_file_size = getEnvWithDefault "MYSQL_INNODB_LOG_FILE_SIZE" "32M";
-                innodb_log_buffer_size = getEnvWithDefault "MYSQL_INNODB_LOG_BUFFER_SIZE" "8M";
-                key_buffer_size = getEnvWithDefault "MYSQL_KEY_BUFFER_SIZE" "32M";
-                max_connections = lib.strings.toInt (getEnvWithDefault "MYSQL_MAX_CONNECTIONS" "50");
-                table_open_cache = lib.strings.toInt (getEnvWithDefault "MYSQL_TABLE_OPEN_CACHE" "128");
-                sort_buffer_size = getEnvWithDefault "MYSQL_SORT_BUFFER_SIZE" "1M";
-                read_buffer_size = getEnvWithDefault "MYSQL_READ_BUFFER_SIZE" "512K";
-                read_rnd_buffer_size = getEnvWithDefault "MYSQL_READ_RND_BUFFER_SIZE" "1M";
-                query_cache_size = getEnvWithDefault "MYSQL_QUERY_CACHE_SIZE" "32M";
-                thread_stack = getEnvWithDefault "MYSQL_THREAD_STACK" "256K";
-                tmp_table_size = getEnvWithDefault "MYSQL_TMP_TABLE_SIZE" "32M";
-                max_heap_table_size = getEnvWithDefault "MYSQL_MAX_HEAP_TABLE_SIZE" "32M";
-              });
-              initialDatabases = [
-                {
-                  name = "drupal"; # Database name
-                }
-              ];
+              } (lib.optionalAttrs
+                (getEnvWithDefault "MYSQL_INNODB_BUFFER_POOL_SIZE" "" != "") {
+                  # CI/Environment-specific MySQL resource constraints
+                  innodb_buffer_pool_size =
+                    getEnvWithDefault "MYSQL_INNODB_BUFFER_POOL_SIZE" "128M";
+                  innodb_log_file_size =
+                    getEnvWithDefault "MYSQL_INNODB_LOG_FILE_SIZE" "32M";
+                  innodb_log_buffer_size =
+                    getEnvWithDefault "MYSQL_INNODB_LOG_BUFFER_SIZE" "8M";
+                  key_buffer_size =
+                    getEnvWithDefault "MYSQL_KEY_BUFFER_SIZE" "32M";
+                  max_connections = lib.strings.toInt
+                    (getEnvWithDefault "MYSQL_MAX_CONNECTIONS" "50");
+                  table_open_cache = lib.strings.toInt
+                    (getEnvWithDefault "MYSQL_TABLE_OPEN_CACHE" "128");
+                  sort_buffer_size =
+                    getEnvWithDefault "MYSQL_SORT_BUFFER_SIZE" "1M";
+                  read_buffer_size =
+                    getEnvWithDefault "MYSQL_READ_BUFFER_SIZE" "512K";
+                  read_rnd_buffer_size =
+                    getEnvWithDefault "MYSQL_READ_RND_BUFFER_SIZE" "1M";
+                  query_cache_size =
+                    getEnvWithDefault "MYSQL_QUERY_CACHE_SIZE" "32M";
+                  thread_stack = getEnvWithDefault "MYSQL_THREAD_STACK" "256K";
+                  tmp_table_size =
+                    getEnvWithDefault "MYSQL_TMP_TABLE_SIZE" "32M";
+                  max_heap_table_size =
+                    getEnvWithDefault "MYSQL_MAX_HEAP_TABLE_SIZE" "32M";
+                });
+              initialDatabases = [{
+                name = "drupal"; # Database name
+              }];
 
             };
             services.php-fpm."${projectName}-php" = {
@@ -158,8 +172,8 @@
             services.nginx."${projectName}-nginx" = {
               enable = true;
 
-	            # Without this Nginx always claims port 8080, and can't be started elsewhere.
-	            port = lib.strings.toInt port;
+              # Without this Nginx always claims port 8080, and can't be started elsewhere.
+              port = lib.strings.toInt port;
               # Override domain:
               httpConfig = ''
                 server {
@@ -237,16 +251,17 @@
               dbSocket = dbSocket;
             };
 
-
-          }
-          // lib.optionalAttrs (builtins.getEnv "CI" == "" && builtins.getEnv "GITLAB_CI" == "" && builtins.getEnv "GITHUB_ACTIONS" == "") {
-            # Open browser to the domain (only if not in CI environment)
-            settings.processes.open-browser = {
-              command = ''
-                sleep 2
-                xdg-open http://${domain}:${port}
-              '';
-              depends_on."${projectName}-nginx".condition = "process_healthy";
+          } // lib.optionalAttrs (builtins.getEnv "CI" == ""
+            && builtins.getEnv "GITLAB_CI" == ""
+            && builtins.getEnv "GITHUB_ACTIONS" == "") {
+              # Open browser to the domain (only if not in CI environment)
+              settings.processes.open-browser = {
+                command = ''
+                  sleep 2
+                  xdg-open http://${domain}:${port}
+                '';
+                depends_on."${projectName}-nginx".condition = "process_healthy";
+              };
             };
 
       in
@@ -672,12 +687,20 @@
                     -d xdebug.client_port=9003 \
                     drush "$@"
                 else
-                  # Use vendor/bin/drush.php with other PHP versions
+                  # Find drush binary (support both vendor/bin and bin/ for kickstart)
+                  if [ -f "$PROJECT_ROOT/vendor/bin/drush" ]; then
+                    DRUSH_BIN="$PROJECT_ROOT/vendor/bin/drush"
+                  elif [ -f "$PROJECT_ROOT/bin/drush" ]; then
+                    DRUSH_BIN="$PROJECT_ROOT/bin/drush"
+                  else
+                    echo "Error: Could not find drush binary in vendor/bin or bin/"
+                    exit 1
+                  fi
                   php -d xdebug.mode=debug \
                     -d xdebug.start_with_request=yes \
                     -d xdebug.client_host=localhost \
                     -d xdebug.client_port=9003 \
-                    $PROJECT_ROOT/vendor/bin/drush.php "$@"
+                    $DRUSH_BIN "$@"
                 fi
               '')
               (writeScriptBin "xphpunit" ''

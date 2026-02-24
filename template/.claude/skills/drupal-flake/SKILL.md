@@ -290,9 +290,68 @@ When starting with an empty directory (no Drupal code, no .env), follow this wor
 
 ### Prerequisites Check
 
-**1. Initialize Git Repository (CRITICAL to prevent Nix errors)**
+**1. Initialize Git Repository and .gitignore (CRITICAL to prevent Nix errors)**
 
-⚠️ **Without git, Nix will fail when MySQL starts** because it creates socket files that Nix can't handle during directory scanning.
+⚠️ **Without git and proper .gitignore, Nix will fail when MySQL starts** because it creates socket files that Nix can't handle during directory scanning.
+
+**Step A: Check/Create .gitignore**
+
+```bash
+# Check if .gitignore exists
+if [ -f ".gitignore" ]; then
+  # Add data/ if not already present
+  if ! grep -q "^data/$" .gitignore; then
+    echo "" >> .gitignore
+    echo "# Drupal-flake: ignore data directory (MySQL, logs, sockets)" >> .gitignore
+    echo "data/" >> .gitignore
+    echo "Added 'data/' to existing .gitignore"
+  fi
+else
+  # No .gitignore - create one with sensible defaults for Drupal
+  cat > .gitignore << 'GITIGNORE'
+# Drupal-flake: data directory (MySQL, logs, sockets)
+data/
+*.sock
+
+# Drupal site files and local environment settings
+web/sites/*/files/
+web/sites/*/private/
+web/sites/*/translations/
+# Ignore ALL environment-specific settings files (local, nix, ddev, etc.)
+# except for the main settings.php which should be committed
+web/sites/*/settings.*.php
+!web/sites/*/settings.php
+web/sites/simpletest/
+
+# Composer
+/vendor/
+composer.lock
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# OS files
+Thumbs.db
+GITIGNORE
+  echo "Created .gitignore with Drupal defaults"
+fi
+```
+
+**Step B: Initialize git**
 
 ```bash
 # Check if git is already initialized
@@ -309,16 +368,10 @@ git add flake.nix flake.lock .env .envrc .gitignore .services/
 
 **Why this matters:**
 - Nix flakes use git to determine which files to include
-- The `data/` directory is gitignored (contains MySQL, logs, sockets)
-- Without git, Nix sees the `mysql.sock` file and fails with "unsupported type" error
+- The `data/` directory contains MySQL sockets that Nix cannot process
+- Without git, Nix scans all files and fails on the socket file with "unsupported type" error
 - Without git, changes to `.env` won't be picked up properly
 - **Only `git add` is needed** - Nix evaluates based on staged files, not commits
-
-**Why this matters:**
-- Nix flakes use git to determine which files to include
-- The `data/` directory is gitignored (contains MySQL, logs, sockets)
-- Without git, Nix sees the `mysql.sock` file and fails with "unsupported type" error
-- Without git, changes to `.env` won't be picked up properly
 
 **2. Ensure flake.nix exists**
 ```bash
@@ -339,36 +392,154 @@ basename "$PWD"
    - Used for: socket paths, domain generation
 
 2. **HTTP Port** (Suggest intelligently based on project name)
-   - Algorithm: Convert project name letters to phone keypad numbers
-   - `a-e=4, f-l=5, m-q=6, r-t=7, u-x=8, y-z=9`
-   - Example: `cms` → c(2)=6, m(1)=6, s(1)=7 → suggest **6677** or **7667**
-   - Range: 1024-65535 (4-digit ports 4000-9999 work well)
-   - Check if suggested port is available: `lsof -i :PORT` should return nothing
-   - **Port Suggestion Script:**
+   
+   **Port Generation Algorithm:** Creates unique ports from project names
+   
    ```bash
    suggest_port() {
      local name="${1:-$(basename "$PWD")}"
-     local pad="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
      local port=""
-     local i=0
-     name=$(echo "$name" | tr '[:lower:]' '[:upper:]')
-     while [ $i -lt 4 ] && [ $i -lt ${#name} ]; do
+     local checksum=0
+     local count=0
+     
+     # Convert to lowercase
+     name=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+     
+     # Method 1: Use first 4 letters with telephone keypad (ABC=2, DEF=3, etc.)
+     for (( i=0; i<${#name} && count<4; i++ )); do
        local char="${name:$i:1}"
-       local pos=$(expr index "$pad" "$char")
-       if [ $pos -ge 1 ] && [ $pos -le 3 ]; then port="${port}4"      # ABC
-       elif [ $pos -ge 4 ] && [ $pos -le 6 ]; then port="${port}5"   # DEF  
-       elif [ $pos -ge 7 ] && [ $pos -le 9 ]; then port="${port}6"   # GHI
-       elif [ $pos -ge 10 ] && [ $pos -le 12 ]; then port="${port}7" # JKL
-       elif [ $pos -ge 13 ] && [ $pos -le 15 ]; then port="${port}8" # MNO
-       elif [ $pos -ge 16 ] && [ $pos -le 19 ]; then port="${port}9" # PQRS
-       elif [ $pos -ge 20 ] && [ $pos -le 22 ]; then port="${port}8" # TUV
-       elif [ $pos -ge 23 ] && [ $pos -le 26 ]; then port="${port}9" # WXYZ
+       local digit=""
+       
+       case "$char" in
+         [abc]) digit="2" ;;
+         [def]) digit="3" ;;
+         [ghi]) digit="4" ;;
+         [jkl]) digit="5" ;;
+         [mno]) digit="6" ;;
+         [pqrs]) digit="7" ;;
+         [tuv]) digit="8" ;;
+         [wxyz]) digit="9" ;;
+       esac
+       
+       if [ -n "$digit" ]; then
+         port="${port}${digit}"
+         ((count++))
        fi
-       i=$((i + 1))
      done
-     echo "${port:-8080}"
+     
+     # Method 2: Add uniqueness by incorporating name length and position
+     # This ensures "cms" (3 letters) and "core" (4 letters) get different ports
+     local len=${#name}
+     local extra_digit=$(( (len % 8) + 2 ))  # 2-9 based on name length
+     
+     # Build final port: first 3 digits from name, 4th from length-based calculation
+     if [ ${#port} -ge 3 ]; then
+       port="${port:0:3}${extra_digit}"
+     else
+       # Pad with calculated digits if name is short
+       while [ ${#port} -lt 3 ]; do
+         port="${port}${port: -1}"
+       done
+       port="${port}${extra_digit}"
+     fi
+     
+     # Ensure valid 4-digit port (2000-9999)
+     if [ "${port:0:1}" = "1" ]; then
+       port="2${port:1}"
+     fi
+     
+     echo "$port"
    }
-   # Usage: suggest_port "cms" → outputs 7667
+   
+   # Better examples with uniqueness:
+   # "cms"   → c=2, m=6, s=7, len=3 → extra=5 → 2675
+   # "core"  → c=2, o=6, r=7, e=3, len=4 → extra=6 → 2676
+   # "drupal" → d=3, r=7, u=8, p=7, len=6 → extra=8 → 3788
+   # "freelock" → f=3, r=7, e=3, e=3, len=8 → extra=2 → 3732
+   ```
+   
+   **Why this is better:**
+   - Uses name length to add uniqueness (3-letter vs 4-letter names get different last digits)
+   - Still based on phone keypad for memorability
+   - "cms" (2675) and "core" (2676) are now adjacent but distinct
+   - Falls within valid port range 2000-9999
+   
+   **Check availability:**
+   ```bash
+   PORT=$(suggest_port "cms")
+   if lsof -i :$PORT >/dev/null 2>&1; then
+     echo "Port $PORT is in use, trying $((PORT + 1))..."
+   fi
+   ```
+   ABC = 2    DEF = 3    GHI = 4
+   JKL = 5    MNO = 6    PQRS = 7
+   TUV = 8    WXYZ = 9
+   ```
+   
+   **Examples:**
+   - `cms` → c=2, m=6, s=7 → **2677** (add last digit to make 4 digits)
+   - `drupal` → d=3, r=7, u=8, p=7 → **3787**
+   - `freelock` → f=3, r=7, e=3, l=5 → **3735**
+   
+   **Working port suggestion script:**
+   ```bash
+   suggest_port() {
+     local name="${1:-$(basename "$PWD")}"
+     local port=""
+     local count=0
+     
+     # Convert to lowercase and iterate through characters
+     name=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+     
+     for (( i=0; i<${#name}; i++ ));
+     do
+       local char="${name:$i:1}"
+       local digit=""
+       
+       case "$char" in
+         [abc]) digit="2" ;;      # ABC = 2
+         [def]) digit="3" ;;      # DEF = 3
+         [ghi]) digit="4" ;;      # GHI = 4
+         [jkl]) digit="5" ;;      # JKL = 5
+         [mno]) digit="6" ;;      # MNO = 6
+         [pqrs]) digit="7" ;;     # PQRS = 7
+         [tuv]) digit="8" ;;      # TUV = 8
+         [wxyz]) digit="9" ;;     # WXYZ = 9
+       esac
+       
+       if [ -n "$digit" ]; then
+         port="${port}${digit}"
+         ((count++))
+       fi
+       
+       # Build 4-digit port from first 4 letters
+       if [ $count -eq 4 ]; then
+         break
+       fi
+     done
+     
+     # If we have less than 4 digits, repeat the last digit
+     while [ ${#port} -lt 4 ]; do
+       port="${port}${port: -1}"
+     done
+     
+     echo "$port"
+   }
+   
+   # Examples:
+   # suggest_port "cms"    → 2677
+   # suggest_port "drupal" → 3787
+   # suggest_port "freelock" → 3735
+   ```
+   
+   **Port range:** 1024-65535 (most 4-digit ports 2000-9999 work well)
+   
+   **Check availability:**
+   ```bash
+   PORT=$(suggest_port "cms")
+   if lsof -i :$PORT >/dev/null 2>&1; then
+     echo "Port $PORT is in use, trying $((PORT + 1))..."
+   fi
    ```
 
 3. **PHP Version**
@@ -377,7 +548,7 @@ basename "$PWD"
 
 4. **Starting Point** (Drupal Distribution)
    - **Drupal CMS 2.0** → `drupal/cms` (latest, includes modern features)
-   - **Drupal Commerce Kickstart** → `drupalcommerce/commerce_kickstart`
+   - **Drupal Commerce Kickstart** → `centarro/commerce-kickstart-project` (creates `kickstart/` dir)
    - **Vanilla Drupal Core** → `drupal/recommended-project`
    - **Other** → Let user specify package name
 
@@ -404,9 +575,22 @@ Based on user choice:
 | Starting Point | Composer Package | Post-Install Recipe |
 |----------------|------------------|---------------------|
 | Drupal CMS 2.0 | `drupal/cms` | `drush site:install recipes/byte --yes` |
-| Commerce Kickstart | `drupalcommerce/commerce_kickstart` | Standard install or check docs |
-| Vanilla Core | `drupal/recommended-project` | `drush site:install standard --yes` |
+| Commerce Kickstart | `centarro/commerce-kickstart-project` | Standard install, creates `kickstart/` directory |
+| Vanilla Core | `drupal/recommended-project` | Installs drush, then `drush site:install standard` |
 | Custom | User-provided | Ask user for install command |
+
+**Note on Directory Names:** Different packages create different directories:
+- `drupal/cms` → creates `cms/` directory
+- `centarro/commerce-kickstart-project` → creates `kickstart/` directory  
+- `drupal/recommended-project` → creates the project name directory
+
+**Note on Binary Locations:** Different packages put binaries in different places:
+- Most packages → `vendor/bin/drush`
+- Commerce Kickstart → `bin/drush` (custom `bin-dir` in composer.json)
+
+The init script and xdrush wrapper handle both locations automatically.
+
+The init script automatically detects and handles this - you don't need to manually move files.
 
 ### Step 4: Initialize Project
 
@@ -498,8 +682,40 @@ pc-status
 1. Check if flake.nix exists
    NO → Run: nix flake init -t /path/to/drupal-flake
    
-2. **CRITICAL: Initialize git BEFORE doing anything else**
+2. **CRITICAL: Initialize git and .gitignore BEFORE doing anything else**
    ```bash
+   # Step A: Handle .gitignore
+   if [ ! -f ".gitignore" ]; then
+      # Create new .gitignore with Drupal defaults
+      cat > .gitignore << 'EOF'
+# Drupal-flake: data directory (MySQL, logs, sockets)
+data/
+*.sock
+
+# Drupal site files and local settings
+web/sites/*/files/
+web/sites/*/settings.*.php
+!web/sites/*/settings.php
+web/sites/*/private/
+
+vendor/
+node_modules/
+EOF
+     echo "Created .gitignore"
+    elif ! grep -q "^data/$" .gitignore; then
+      # Add to existing .gitignore
+      echo -e "\n# Drupal-flake
+data/" >> .gitignore
+      echo "Added 'data/' to .gitignore"
+    fi
+    
+    # Also ensure settings.*.php is excluded (for nix, ddev, local settings)
+    if ! grep -q "settings\.\*\.php" .gitignore 2>/dev/null; then
+      echo -e "\n# Ignore environment-specific settings (nix, ddev, local)\nweb/sites/*/settings.*.php\n!web/sites/*/settings.php" >> .gitignore
+      echo "Added settings pattern to .gitignore"
+    fi
+   
+   # Step B: Initialize git
    git init
    git add flake.nix flake.lock .env .envrc .gitignore .services/
    # Note: git add is sufficient - Nix uses staged files, user can commit later
@@ -511,19 +727,64 @@ pc-status
    YES → Existing project, skip to environment detection
    NO  → Continue with initialization
    
-4. **CRITICAL - MUST PROMPT USER:** Don't auto-detect or skip!
+4. **CRITICAL - MUST PROMPT USER:** 
    
-   **Always ask these 4 questions:**
+   ⚠️ **DO NOT SKIP THESE QUESTIONS - DO NOT USE DEFAULTS WITHOUT ASKING!**
+   
+   Common agent mistake: Using the directory name as project name and 8080 as port without asking. **This is WRONG!**
+   
+   **YOU MUST ASK ALL 4 QUESTIONS EXPLICITLY:**
+   
+   **DO:**
+   - Ask: "What project name should I use? (detected directory: 'cms')"
+   - Ask: "What port should I use? (calculated from 'cms': 2677, or would you prefer 8080?)"
+   - Ask: "Which PHP version? (options: php74, php83, php84 - default: php84)"
+   - Ask: "Which starting point? 1) Drupal CMS with byte recipe, 2) Commerce Kickstart, 3) Vanilla core"
+   - Wait for user to respond to EACH question before proceeding
+   
+   **DON'T:**
+   - Assume project name = directory name
+   - Assume port = 8080 or any default
+   - Assume PHP version = php84
+   - Assume starting point = Drupal CMS
+   - Proceed to create .env until ALL 4 questions are answered
+   
+   **Template for asking:**
+   ```
+   I'm setting up a new Drupal project. I need to ask you 4 quick questions:
+   
+   1. Project name? (detected: 'cms')
+   2. HTTP port? (calculated: 2677 from 'cms', or choose 8080, 8888, etc.)
+   3. PHP version? (php84 recommended, or php74/php83)
+   4. Starting point?
+      - Drupal CMS 2.0 with full demo content (byte recipe, ~3-5 min)
+      - Commerce Kickstart (e-commerce setup)
+      - Vanilla Drupal core (minimal, ~1-2 min)
+   
+   What are your preferences?
+   ```
+   
+   **Verification:**
+   After user responds, confirm back: "Got it: project='cms', port=2677, php=php84, starting with Drupal CMS. Creating .env now..."
+   
+   **If user doesn't specify:**
+   - Project: Ask again "What project name should I use?"
+   - Port: Ask again "What port? The calculated port 2677 is available."
+   - PHP: Use php84 but confirm "Using php84 - is that okay?"
+   - Starting point: Ask again "Which option 1, 2, or 3?"
    
    a. **Project name?**
       - Check: basename "$PWD" → e.g., "cms"
       - Suggest: "What project name should I use? (default: cms)"
       - Wait for user confirmation or input
    
-   b. **Port?** 
-      - Calculate: Using phone keypad on "cms" → 7667
-      - Suggest: "What port should I use? (suggested: 7667, check: lsof -i :7667)"
-      - Wait for user confirmation or input
+    b. **Port?** 
+       - Calculate: Using phone keypad + name length for uniqueness
+       - For "cms" (3 letters): 2+6+7 + len-based 5 → **2675**
+       - For "core" (4 letters): 2+6+7 + len-based 6 → **2676** (different from cms!)
+       - Suggest: "What port should I use? (calculated from 'cms': 2675, verify with: lsof -i :2675)"
+       - Wait for user confirmation or input
+       - Alternative: Offer standard ports like 8080, 8888, or their calculated port
    
    c. **PHP version?**
       - Suggest: "Which PHP version? (default: php84, options: php74, php83, php84)"
@@ -536,16 +797,15 @@ pc-status
 
 4. Write .env file with CONFIRMED user selections
    
-5. **Initialize git repository (if not already done):**
+5. **Add .env to git (critical for Nix to see it):**
    ```bash
-   git init 2>/dev/null || echo "Already initialized"
-   git add .env .gitignore flake.nix flake.lock .envrc .services/ 2>/dev/null
-   # Note: Only 'git add' needed - Nix evaluates staged files, commit optional
+   git add .env .gitignore
+   # Re-stage to ensure Nix sees the updated .env with correct project name
    ```
    
 6. Determine package and recipe based on user choice:
    - Choice 1 (CMS) → drupal/cms + DEMO_RECIPE="recipes/byte"
-   - Choice 2 (Commerce) → drupalcommerce/commerce_kickstart + no recipe
+   - Choice 2 (Commerce) → centarro/commerce-kickstart-project + no recipe
    - Choice 3 (Vanilla) → drupal/recommended-project + no recipe
    
 7. Enter nix shell to load environment:
@@ -658,70 +918,8 @@ pc-status
     Available commands:
     - pc-status     Check environment status
     - ?             Show all commands
-    - drush [cmd]   Run Drush commands
-    ```
-   
-7. Set recipe environment variable and start in detached mode:
-   ```bash
-   export DEMO_RECIPE="recipes/byte"  # Only for CMS choice
-   start-demo --detached [package] [project-name]
-   ```
-   
-8. **Monitor installation (⚠️ TAKES 2-5 MINUTES):**
-   
-   **DON'T wait for "all processes running" - that's WRONG!**
-   
-   **Correct completion checks:**
-   ```bash
-   # Method 1: HTTP check (BEST - check every 10 seconds)
-   export BASE_URL="http://$(grep DOMAIN .env | cut -d= -f2):$(grep PORT .env | cut -d= -f2)"
-   until curl -s -o /dev/null -w "%{http_code}" "$BASE_URL" | grep -q "200"; do
-     echo "$(date): Waiting for site... (checking $BASE_URL)"
-     sleep 10
-   done
-   echo "✅ Site is responding at $BASE_URL"
-   
-   # Method 2: Check logs for completion message
-   tail -50 data/demo-detached.log | grep -E "(completed|installed|ready)"
-   
-   # Method 3: Check for web/index.php existence
-   ls web/index.php 2>/dev/null && echo "✅ Drupal code present"
-   ```
-   
-   **Expected behavior:**
-   - Setup processes complete and exit (this is NORMAL)
-   - Only 3-4 persistent services remain (php, nginx, mysql)
-   - Process count like "3/7 running" or "4/7 running" is SUCCESS, not failure
-   
-9. **Get credentials and verify:**
-   ```bash
-   # Check if site responds
-   curl -s -o /dev/null -w "%{http_code}" "$BASE_URL"
-   # Should output: 200
-   
-   # Get admin login link
-   drush uli
-   # Outputs: http://cms.ddev.site:7667/user/reset/1/xxxxx/yyyyy
-   
-   # Or check install logs for credentials:
-   grep -E "(Username|Password|Congratulations)" data/demo-detached.log
-   ```
-   
-10. **Report success to user:**
-    ```
-    ✅ Drupal installation complete!
-    
-    Site URL: http://[domain]:[port]
-    Admin login: [drush uli output]
-    Recipe installed: [recipes/byte or none]
-    Installation time: ~[X] minutes
-    
-    Available commands:
-    - pc-status     Check environment status
-    - ?             Show all commands
-    - drush [cmd]   Run Drush commands
-    ```
-```
+     - drush [cmd]   Run Drush commands
+     ```
 
 ## Troubleshooting
 
@@ -830,28 +1028,192 @@ This tells Nix to ignore git and track all files, but may still fail on sockets.
 **Best Practice:** Always `git init` immediately after `nix flake init`, BEFORE starting any services.
 
 ### Agent didn't ask for project name/port and used defaults
-**Problem:** The agent started setup without asking for configuration, resulting in wrong project name or port.
 
-**Cause:** The agent may have found an existing `.env` file or assumed defaults without prompting.
+**Problem:** The agent created `.env` without asking the user for:
+- Project name (used directory name instead)
+- Port (used 8080 instead of calculated port like 2677)
+- PHP version (assumed php84)
+- Starting point (assumed Drupal CMS)
+
+**This is WRONG** - The agent MUST ask ALL 4 questions and wait for answers.
+
+**Why this happens:**
+- Agent thinks defaults are "good enough"
+- Agent tries to be efficient by skipping "unnecessary" questions
+- Agent doesn't realize user might want custom values
+
+**PREVENTION - What agents MUST do:**
+
+```bash
+# BEFORE creating .env, ask ALL 4 questions:
+
+1. Project name:
+   DEFAULT=$(basename "$PWD")
+   Ask: "What project name should I use? (detected: '$DEFAULT')"
+   # Wait for user response - do not assume
+
+2. Port:
+   PORT=$(suggest_port "$DEFAULT")  # e.g., 2677 for "cms"
+   Ask: "What port should I use? (calculated from '$DEFAULT': $PORT)"
+   # Wait for user response - offer alternatives like 8080, 8888
+
+3. PHP version:
+   Ask: "Which PHP version? (default: php84, options: php74, php83, php84)"
+   # Wait for user response - don't assume php84
+
+4. Starting point:
+   Ask: "Which starting point?
+   1) Drupal CMS 2.0 with full demo content (recipes/byte, ~3-5 min)
+   2) Commerce Kickstart (e-commerce setup)
+   3) Vanilla Drupal core (minimal, ~1-2 min)"
+   # Wait for user selection - don't assume option 1
+
+# Confirm back to user:
+"Got it! Using: project='$PROJECT', port=$PORT, php=$PHP, starting with $STARTING_POINT"
+
+# Only NOW create .env:
+# ⚠️ IMPORTANT: Do NOT add SITE_NAME or other optional variables
+# If you must add values with spaces, quote them properly: SITE_NAME="Commerce Kickstart"
+cat > .env << EOF
+PROJECT_NAME=$PROJECT
+DOMAIN=${PROJECT}.ddev.site
+PORT=$PORT
+PHP_VERSION=$PHP
+DOCROOT=web
+EOF
+```
+
+**RECOVERY - If wrong config was created:**
+```bash
+# Stop everything
+stop-all
+
+# Remove incorrect data
+rm -rf data/ web/ .env
+
+# Remove from git
+git rm -f --cached .env 2>/dev/null || true
+
+# Start over and ask ALL questions this time
+```
+
+**Agent Self-Check:**
+Before creating `.env`, verify:
+- [ ] Did I ask for project name? (not assume basename $PWD)
+- [ ] Did I ask for port? (not assume 8080)
+- [ ] Did I ask for PHP version? (not assume php84)
+- [ ] Did I ask for starting point? (not assume CMS)
+- [ ] Did I wait for user response to each question?
+- [ ] Did I confirm the choices with the user?
+
+If any answer is NO, go back and ask the question!
+
+### .env file format errors / dotenv library failures
+
+**Problem:** Installation fails with dotenv library errors:
+```
+dotenv: Error parsing .env file at line X: SITE_NAME=Commerce Kickstart
+```
+
+**Cause:** Values with spaces are not quoted, or extra variables were added.
+
+**Root causes:**
+1. **Spaces without quotes:** `SITE_NAME=Commerce Kickstart` breaks dotenv parsers
+2. **Agent adding extra variables:** The agent shouldn't add SITE_NAME or other optional vars
+3. **Values containing special characters:** `#`, `=`, `:` can break parsing
+
+**Solution:**
+
+```bash
+# Proper .env file format:
+# - NO spaces around =
+# - Quote values with spaces: KEY="value with spaces"
+# - Don't add optional variables unless necessary
+
+# WRONG:
+SITE_NAME=Commerce Kickstart           # Breaks: space without quotes
+SITE_NAME = "Commerce Kickstart"       # Breaks: space around =
+
+# CORRECT:
+PROJECT_NAME=kickstart                 # OK: no spaces
+SITE_NAME="Commerce Kickstart"       # OK: quoted value
+```
 
 **Prevention:**
-1. **Always check BEFORE creating .env:**
-   ```bash
-   ls .env 2>/dev/null && cat .env || echo "No .env yet"
-   ```
+- Only set: PROJECT_NAME, DOMAIN, PORT, PHP_VERSION, DOCROOT
+- Don't add: SITE_NAME, ADMIN_NAME, or other variables
+- If you must add SITE_NAME, use quotes: `SITE_NAME="My Site"`
+- Never put spaces around the `=` sign
 
-2. **Explicitly prompt for each value:**
-   - "What project name should I use? (detected: $(basename $PWD))"
-   - "What port should I use? (suggested: $(suggest_port), check: lsof -i :PORT)"
-   - "Which PHP version? (default: php84)"
-   - "Which starting point? (explain options)"
+**Fix broken .env:**
+```bash
+# Check current .env
+cat .env
 
-3. **Wait for user confirmation** - don't proceed with defaults
+# Fix by rewriting with proper format
+cat > .env << 'EOF'
+PROJECT_NAME=kickstart
+DOMAIN=kickstart.ddev.site
+PORT=5454
+PHP_VERSION=php84
+DOCROOT=web
+EOF
+```
 
-**If already started with wrong config:**
-1. Stop: `stop-all`
-2. Delete data: `rm -rf data/ web/ .env`
-3. Re-initialize with correct values
+### Agent prompting issues - Inconsistent interfaces
+
+**Problem:** Agent sometimes uses nice tabbed/picker interface, sometimes just lists defaults as text.
+
+**Expected behavior:** Agent should use consistent interactive prompts (arrow keys + enter) for all questions.
+
+**Inconsistent examples:**
+```
+# BAD - Just listing text:
+"Project name? (detected: cms)"
+"Port? (2675)"  
+"PHP version? (php84)"
+"Starting point? (1=CMS, 2=Commerce, 3=Vanilla)"
+# User has to type everything manually
+
+# GOOD - Interactive picker with arrow keys:
+? Project name: (cms) › 
+? Port: (Use arrow keys)
+  2675 (calculated)
+  8080
+  8888
+❯ 2675
+```
+
+**Required prompting method:**
+1. Use interactive pickers with arrow key navigation for ALL questions
+2. Show calculated/suggested values as the default (highlighted)
+3. Allow user to either:
+   - Press Enter to accept default
+   - Type a custom value
+   - Use arrow keys to select from options
+
+**Implementation:**
+```
+Question format for each prompt:
+1. "Project name? (detected: 'cms')" 
+   - Show default from directory name
+   - Allow typing custom name
+   
+2. "Port? (calculated: 2675)"
+   - Show calculated port
+   - Offer alternatives: 8080, 8888
+   
+3. "PHP version? (default: php84)"
+   - Show options: php74, php83, php84
+   
+4. "Starting point?"
+   - Option 1: Drupal CMS (full demo)
+   - Option 2: Commerce Kickstart
+   - Option 3: Vanilla core
+```
+
+**If agent is not using interactive prompts:**
+Remind the agent: "Please use interactive pickers with arrow keys for all questions, not just listing them as text."
 
 ### Setup shows "3/7 running" or "4/7 running" - Agent thinks it failed
 **Problem:** Agent sees process count like "3/7 running" and thinks installation failed or is incomplete.
@@ -909,6 +1271,92 @@ fi
 
 **Prevention:** Always run `drush uli` after installation completes to get fresh login link.
 
+### Commerce Kickstart installation issues
+
+**Problem 1:** Composer dependency errors during installation:
+```
+centarro/commerce_kickstart requires drupal/commerce_kickstart_base ^1 -> could not be found
+```
+
+**Solution:** Run composer update after the initial install:
+```bash
+cd /path/to/kickstart
+composer update
+```
+
+**Problem 2:** Drush not found - `vendor/bin/drush` doesn't exist
+
+**Cause:** Commerce Kickstart uses a custom `bin-dir: bin` in composer.json, so binaries are in `bin/` not `vendor/bin/`.
+
+**Solution:** Use `bin/drush` instead:
+```bash
+./bin/drush site:install commerce_kickstart_demo
+./bin/drush cache:rebuild
+```
+
+Or if drush command not found, check both locations:
+```bash
+# For most projects:
+vendor/bin/drush status
+
+# For Commerce Kickstart:
+bin/drush status
+```
+
+**Problem 3:** Site loads with errors after installation
+
+**Solution:** Clear caches and run the kickstart recipe:
+```bash
+# Install the demo content
+./bin/drush site:install commerce_kickstart_demo
+
+# Clear all caches
+./bin/drush cache:rebuild
+```
+
+### Vanilla Core (drupal/recommended-project) installation issues
+
+**Problem 1:** Drush not found during installation
+
+**Cause:** Vanilla core doesn't include drush by default, unlike CMS or Kickstart.
+
+**Solution:** The init script now automatically installs drush if missing. If you hit this issue manually:
+```bash
+composer require drush/drush --with-all-dependencies
+```
+
+**Problem 2:** Settings.php gets corrupted
+
+**Cause:** `drush site:install` adds a database configuration block to the end of settings.php, which conflicts with our nix-settings.php configuration.
+
+**Current behavior:** The init script:
+1. Creates settings.php from default.settings.php
+2. Runs nix-settings (creates settings.nix.php with database config)
+3. Backs up settings.php
+4. Runs drush site:install (adds $databases to settings.php)
+5. Restores the backup (removes drush's database block)
+
+This should work automatically. If you see database errors:
+```bash
+# Check that settings.nix.php exists
+ls web/sites/default/settings.nix.php
+
+# If missing, regenerate it
+nix-settings [project-name] web [path-to-mysql-sock]
+
+# Clear caches
+drush cache:rebuild
+```
+
+**Problem 3:** Site shows errors after installation
+
+**Solution:** Always clear caches after installation:
+```bash
+drush cache:rebuild
+# or
+drush cr
+```
+
 ### Installation completed but agent still waiting
 
 ### .env changes not picked up / Wrong project name or URL
@@ -928,18 +1376,43 @@ The Nix flake reads `.env` at **evaluation time**, not shell entry time. If you 
 **Best Practice:** Create `.env` BEFORE first entering the directory, or always reload after changes.
 
 ### mysql.sock "unsupported type" error
-**Error:** `file '/path/to/data/PROJECT-db/mysql.sock' has an unsupported type`
+**Error:** `error: file '/path/to/data/PROJECT-db/mysql.sock' has an unsupported type`
 
-This happens when Nix tries to evaluate the flake but encounters the MySQL socket file, which is a special file type that Nix can't handle during directory scanning.
+**Root Cause:** Nix cannot handle socket files when evaluating the flake. MySQL creates `mysql.sock` in the `data/` directory. Without git or without `data/` in `.gitignore`, Nix sees the socket and fails.
 
-**Solutions:**
-1. **Stop the environment first**: `stop-all` or `pc-stop`
-2. **Remove socket files before nix commands**:
-   ```bash
-   rm -f data/*/mysql.sock
-   nix flake update
-   ```
-3. **Use --impure flag** (if needed): `nix develop --impure`
+**Solutions (in order of preference):**
+
+**Option 1: Ensure .gitignore and git are properly configured (BEST)**
+```bash
+# Check if data/ is in .gitignore
+grep -q "^data/$" .gitignore 2>/dev/null || echo "data/" >> .gitignore
+
+# Remove existing socket files
+rm -f data/*/mysql.sock
+
+# Make sure files are added to git
+git add .gitignore flake.nix flake.lock .env .envrc .services/
+
+# Now nix commands will work
+nix flake update
+```
+
+**Option 2: Remove socket files and use --impure**
+```bash
+# Stop the environment first
+stop-all 2>/dev/null || true
+
+# Remove socket files
+rm -f data/*/mysql.sock
+
+# Use --impure flag (works but not ideal)
+nix develop --impure
+```
+
+**Prevention:**
+- Always ensure `.gitignore` includes `data/` before running any nix commands
+- Initialize git immediately after `nix flake init`
+- The combination of git + .gitignore prevents Nix from seeing the socket
 
 ### Recipe not installed / Wrong install type
 If you ran `start-demo` but got a generic install instead of the recipe (e.g., Mercury theme instead of byte recipe):
@@ -981,22 +1454,35 @@ start-detached
     If NO code AND NO .env → NEW PROJECT:
       a. Check for flake.nix (ls flake.nix)
          NO → Run: nix flake init -t /path/to/drupal-flake
-      b. **CRITICAL: Initialize git BEFORE starting services**
+      b. **CRITICAL: Initialize git and .gitignore BEFORE starting services**
          ```bash
+         # Handle .gitignore first
+         if ! grep -q "^data/$" .gitignore 2>/dev/null; then
+           echo -e "\n# Drupal-flake\ndata/" >> .gitignore
+         fi
+         
+         # Then init git
          git init
          git add flake.nix flake.lock .env .envrc .gitignore .services/
          # Note: 'git add' is sufficient - Nix uses staged files, commit is optional
          ```
          ⚠️ Without git, MySQL socket will cause Nix to fail!
-      c. PROMPT USER (don't assume):
-         - "Project name? (default: $(basename $PWD))"
-         - "Port? (suggested: $(suggest_port), verify with: lsof -i :PORT)"  
-         - "PHP version? (default: php84, options: php74/php83/php84)"
-         - "Starting point? (1=Drupal CMS with byte recipe, 2=Commerce, 3=Vanilla)"
+       c. **PROMPT USER - DO NOT SKIP, DO NOT USE DEFAULTS:**
+          ⚠️ **ASK ALL 4 QUESTIONS, WAIT FOR RESPONSES:**
+          ```
+          1. "Project name? (detected: 'cms')" 
+          2. "Port? (calculated: 2677, or choose 8080, 8888)"
+          3. "PHP version? (default: php84, options: php74/php83)"
+          4. "Starting point? (1=CMS/byte, 2=Commerce, 3=Vanilla)"
+          ```
+          - Calculate port with: suggest_port "$(basename $PWD)"
+          - Wait for user to answer EACH question
+          - Confirm back: "Using project='X', port=Y, php=Z, starting=W"
+          - Only then create .env
       d. Create .env file with user CONFIRMED values
       e. Determine package and recipe:
          - Choice 1 → drupal/cms, DEMO_RECIPE="recipes/byte"
-         - Choice 2 → drupalcommerce/commerce_kickstart
+         - Choice 2 → centarro/commerce-kickstart-project
          - Choice 3 → drupal/recommended-project
       f. Enter nix shell: nix develop (or wait for direnv)
       g. Set DEMO_RECIPE if needed, run: start-demo --detached [pkg] [name]
@@ -1069,6 +1555,7 @@ which docker && docker ps 2>/dev/null | grep -qE "(php|nginx|apache)" && echo "�
 
 ## Important Notes
 
+- **MUST ASK ALL 4 QUESTIONS** - Never skip prompts: project name, port, PHP version, starting point
 - **Git is REQUIRED** - `git init` immediately after `nix flake init`, BEFORE starting services
 - **Never auto-start DDev** - it may conflict with user's intent
 - **Always check HTTP 200 first** - Site responding is the TRUE success metric
@@ -1077,7 +1564,10 @@ which docker && docker ps 2>/dev/null | grep -qE "(php|nginx|apache)" && echo "�
 - **Use start-detached over nix run** - doesn't block the agent
 - **Wait for HTTP response** - not "all processes running" (setup processes complete!)
 - **Respect .env configuration** - especially PORT and DOMAIN
-- **Always PROMPT user** - don't use defaults without asking (project name, port, etc.)
+- **Calculate port correctly** - Phone keypad + name length: ABC=2, DEF=3, GHI=4, JKL=5, MNO=6, PQRS=7, TUV=8, WXYZ=9. cms→2675, core→2676, drupal→3788
+- **Vanilla Core needs drush installed** - Unlike CMS or Kickstart, vanilla core doesn't include drush. The init script installs it automatically.
+- **Use interactive prompts with arrow keys** - Don't just list defaults as text. Use pickers where user can press Enter or arrow through options.
+- **Quote .env values with spaces** - `SITE_NAME="Commerce Kickstart"` not `SITE_NAME=Commerce Kickstart`. Don't add optional variables unless necessary.
 - **Background vs Interactive** - `start-detached` is better for agents; `nix run` for user TUI
 - **Get credentials via drush uli** - Don't wait for install output, generate fresh login link
 - **MySQL socket causes Nix failures without git** - Socket files in data/ can't be tracked

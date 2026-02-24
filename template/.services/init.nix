@@ -89,8 +89,9 @@ in
     package = pkgs.writeScriptBin "init" ''
       #!${pkgs.bash}/bin/bash
       export PHP_MEMORY_LIMIT=-1
-      export PATH="${php}/bin:${config.php.packages.composer}/bin:$(pwd)/vendor/bin:$PATH"
-      
+      # Support both vendor/bin (standard) and bin/ (kickstart-style) for binaries
+      export PATH="${php}/bin:${config.php.packages.composer}/bin:$(pwd)/vendor/bin:$(pwd)/bin:$PATH"
+
       # Create .env file if custom project name is provided
       if [ -n "${config.customProjectName}" ] && [ ! -f ".env" ] && [ -f ".env.example" ]; then
         echo "Creating .env file with custom project name: ${config.customProjectName}"
@@ -104,10 +105,37 @@ in
         COMPOSER_OPTS="''${DEMO_COMPOSER_OPTIONS:-${config.composerOptions}}"
         
         echo "Installing Drupal package: $DRUPAL_PKG..."
-        composer create-project $DRUPAL_PKG cms $COMPOSER_OPTS
         
-        # Move files from cms directory, handling conflicts carefully
-        for item in cms/*; do
+        # Determine the project name from the package (last part after /)
+        PROJECT_DIR=$(echo "$DRUPAL_PKG" | sed 's/.*\///' | sed 's/-project$//')
+        
+        # Run composer create-project - it will create a directory based on the package name
+        composer create-project $DRUPAL_PKG $COMPOSER_OPTS
+        
+        # Find the directory that was just created (most recent directory)
+        # For drupal/cms -> creates "cms"
+        # For centarro/commerce-kickstart-project -> creates "kickstart"
+        if [ -d "$PROJECT_DIR" ]; then
+          INSTALL_DIR="$PROJECT_DIR"
+        elif [ -d "cms" ]; then
+          INSTALL_DIR="cms"
+        elif [ -d "kickstart" ]; then
+          INSTALL_DIR="kickstart"
+        else
+          # Find the most recently created directory
+          INSTALL_DIR=$(ls -td */ 2>/dev/null | head -1 | sed 's:/$::')
+          echo "Detected install directory: $INSTALL_DIR"
+        fi
+        
+        if [ -z "$INSTALL_DIR" ] || [ ! -d "$INSTALL_DIR" ]; then
+          echo "Error: Could not find installation directory"
+          exit 1
+        fi
+        
+        echo "Moving files from $INSTALL_DIR directory..."
+        
+        # Move files from install directory, handling conflicts carefully
+        for item in "$INSTALL_DIR"/*; do
           [ -e "$item" ] || continue  # Skip if glob didn't match anything
           basename_item=$(basename "$item")
           if [ -e "$basename_item" ]; then
@@ -127,7 +155,7 @@ in
         done
         
         # Move hidden files (excluding . and ..)
-        for item in cms/.[^.]*; do
+        for item in "$INSTALL_DIR"/.[^.]*; do
           [ -e "$item" ] || continue  # Skip if glob didn't match anything
           basename_item=$(basename "$item")
           if [ -e "$basename_item" ]; then
@@ -137,14 +165,22 @@ in
           mv "$item" ./
         done
         
-        # Remove cms directory if empty, otherwise warn
-        if rmdir cms 2>/dev/null; then
-          echo "Cleaned up cms directory"
+        # Remove install directory if empty, otherwise warn
+        if rmdir "$INSTALL_DIR" 2>/dev/null; then
+          echo "Cleaned up $INSTALL_DIR directory"
         else
-          echo "Warning: cms directory not empty, contents:"
-          ls -la cms/ || true
+          echo "Warning: $INSTALL_DIR directory not empty, contents:"
+          ls -la "$INSTALL_DIR"/ || true
         fi
+        
+        # Run composer install to ensure dependencies are up to date
         composer install
+        
+        # Install drush if not present (vanilla core doesn't include it)
+        if [ ! -f "vendor/bin/drush" ] && [ ! -f "bin/drush" ]; then
+          echo "Drush not found, installing..."
+          composer require drush/drush --with-all-dependencies
+        fi
 
         # Copy settings file without comments and enable local settings include
         grep -v '^#\|^/\*\|^ \*\|^ \*/\|^$' web/sites/default/default.settings.php | grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
@@ -162,7 +198,8 @@ in
         chmod 777 web/sites/default/settings.php
         chmod 777 web/sites/default
 
-        # Back up settings.php - drush site:install incorrectly adds $databases to settings.php
+        # Back up settings.php - drush site:install adds $databases to end of settings.php
+        # which conflicts with our nix-settings configuration
         cp web/sites/default/settings.php web/sites/default/settings.php.tmp
 
         # Use recipe if specified, otherwise use default install
@@ -171,11 +208,17 @@ in
           echo "Installing Drupal with recipe: $RECIPE"
           drush site:install "$RECIPE" -y
         else
-          drush site:install -y
+          echo "Installing Drupal..."
+          drush site:install standard -y
         fi
 
-        # Restore settings.php
+        # Restore settings.php to remove the database block drush added
+        # Our nix-settings.php handles database configuration separately
         mv web/sites/default/settings.php.tmp web/sites/default/settings.php
+        
+        # Clear caches after installation to ensure site loads properly
+        echo "Clearing caches..."
+        drush cache:rebuild || true
       else
         echo "Drupal CMS already installed"
       fi
