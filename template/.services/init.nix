@@ -68,6 +68,12 @@ in
       default = "";
       description = "Additional options to pass to composer create-project";
     };
+    recipe = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description =
+        "Drupal recipe to install (e.g., recipes/byte, standard, minimal). If empty, uses default install";
+    };
     customProjectName = lib.mkOption {
       type = lib.types.str;
       default = "";
@@ -159,7 +165,14 @@ in
         # Back up settings.php - drush site:install incorrectly adds $databases to settings.php
         cp web/sites/default/settings.php web/sites/default/settings.php.tmp
 
-        drush site:install -y
+        # Use recipe if specified, otherwise use default install
+        RECIPE="''${DEMO_RECIPE:-${config.recipe}}"
+        if [ -n "$RECIPE" ]; then
+          echo "Installing Drupal with recipe: $RECIPE"
+          drush site:install "$RECIPE" -y
+        else
+          drush site:install -y
+        fi
 
         # Restore settings.php
         mv web/sites/default/settings.php.tmp web/sites/default/settings.php
