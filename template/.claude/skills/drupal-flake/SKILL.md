@@ -119,11 +119,25 @@ Extract ports from container info and construct URLs.
 - `nix develop` - Enter shell without starting services
 
 **Site Setup:**
-- `start-demo [package] [name] [options]` - Create new Drupal site
+- `start-demo [package] [name] [options]` - Create new Drupal site (all-in-one)
   - Examples:
     - `start-demo` - Default drupal/cms
     - `start-demo drupal/recommended-project my-site`
     - `start-demo phenaproxima/xb-demo xb-site --stability=dev`
+- **Discrete Installation Steps** (for granular control and debugging):
+  - `drupal-download [package] [directory] [options]` - Download Drupal via composer create-project
+    - Supports `DEMO_STABILITY` environment variable (dev, alpha, beta, RC, stable)
+    - Creates data/ directory automatically to avoid race conditions
+    - Example: `DEMO_STABILITY=dev drupal-download drupal/cms`
+  - `drupal-recipe <recipe-package>` - Install site template via composer
+    - Handles stability adjustments automatically
+    - Adds Drupal packages repository if needed
+    - Example: `DEMO_STABILITY=dev drupal-recipe drupal/haven`
+  - `drupal-install [recipe-or-profile]` - Run site installation with proper setup
+    - Detects drush location (vendor/bin/ or bin/)
+    - Handles settings.php permissions and nix-settings.php
+    - Removes duplicate database config after install
+    - Example: `drupal-install recipes/haven` or `drupal-install standard`
 - `start-config` - Install from existing config (**WARNING:** clobbers database!)
 - `refresh-flake [path]` - Update flake from Drupal.org or local path
 
@@ -168,6 +182,47 @@ start-demo
 # Or specify everything
 start-demo drupal/recommended-project my-project --stability=stable
 ```
+
+**Option 1b: Discrete Installation Steps** (for debugging/recovery)
+
+When `start-demo` fails or you need more control, use the discrete commands:
+
+```bash
+# Step 1: Download Drupal package
+DEMO_STABILITY=dev drupal-download drupal/cms
+
+# Step 2: Install site template (if using one like Haven)
+DEMO_STABILITY=dev drupal-recipe drupal/haven
+
+# Step 3: Start the environment and install
+dev
+start-detached
+# Wait for services to be ready
+drupal-install recipes/haven
+```
+
+**Using discrete commands with custom site templates:**
+
+```bash
+# Download base Drupal
+drupal-download drupal/cms
+
+# Install the site template package (handles stability issues)
+export DEMO_STABILITY=dev
+drupal-recipe drupal/haven
+
+# Find the recipe path
+ls recipes/haven/recipe.yml
+
+# Install the site
+drupal-install recipes/haven
+```
+
+**Advantages of discrete commands:**
+- Each step logs to separate files (data/download.log, data/recipe.log, data/install.log)
+- Can retry failed steps without re-downloading
+- Better error messages and recovery options
+- Can inspect state between steps
 
 **Option 2: From Config (start-config)**
 ```bash
@@ -1442,6 +1497,737 @@ export DEMO_RECIPE="recipes/byte"
 start-detached
 ```
 
+## Installation Failure Recovery
+
+When installation fails, it's critical to properly clean up before retrying. Partially started services can cause conflicts and prevent successful retries.
+
+### Step 1: Stop All Services on Failure
+
+**ALWAYS run `pc-stop` when any installation step fails:**
+
+```bash
+# Stop all process-compose services for this project
+pc-stop
+
+# Or stop ALL process-compose environments (if pc-stop doesn't work)
+stop-all
+```
+
+**Why this matters:**
+- MySQL may have partially initialized and have corrupted data
+- PHP-FPM may have cached bad configuration
+- Nginx may have open connections to broken upstreams
+- Files may be locked by running processes
+
+### Step 2: Check for Partial State
+
+```bash
+# Look for leftover processes
+pc-status
+
+# Check for data directory issues
+ls -la data/
+
+# Look for lock files or sockets
+find . -name "*.sock" -o -name "*.lock" 2>/dev/null | grep -v node_modules
+```
+
+### Step 3: Clean Up Failed State (if needed)
+
+**If the failure was during initial Drupal download/install:**
+```bash
+# Remove partially downloaded Drupal
+rm -rf web/ vendor/ composer.lock
+
+# Clear data directory (WARNING: destroys database)
+rm -rf data/
+
+# Restart from clean state
+start-detached
+```
+
+**If database is corrupted:**
+```bash
+# Nuclear option: wipe everything and start fresh
+pc-stop
+rm -rf data/
+start-detached
+```
+
+### Step 4: Use Discrete Commands for Recovery
+
+When `start-demo` keeps failing, switch to **discrete commands** for better control and debugging:
+
+**The discrete command workflow:**
+
+```bash
+# 1. Stop any running services
+pc-stop
+
+# 2. Clean up partial state (if needed)
+rm -rf web/ vendor/ composer.lock data/*
+
+# 3. Download Drupal with explicit stability
+cd /path/to/project
+export DEMO_STABILITY=dev
+drupal-download drupal/cms 2>&1 | tee data/download.log
+
+# 4. If using a site template, install it
+export DEMO_RECIPE=recipes/haven
+drupal-recipe drupal/haven 2>&1 | tee data/recipe.log
+
+# 5. Start services
+start-detached
+
+# 6. Install the site
+drupal-install recipes/haven 2>&1 | tee data/install.log
+```
+
+**Benefits of discrete commands:**
+- **Separate logs** for each step: `data/download.log`, `data/recipe.log`, `data/install.log`
+- **Retry individual steps** without re-downloading everything
+- **Better error messages** - each command focuses on one task
+- **Manual inspection** between steps
+
+**Common recovery scenarios:**
+
+**Scenario: Download fails due to stability**
+```bash
+# Error: Your requirements could not be resolved to an installable set
+# Solution: Use DEMO_STABILITY=dev
+DEMO_STABILITY=dev drupal-download drupal/cms
+```
+
+**Scenario: Recipe package not found**
+```bash
+# Error: Could not find package drupal/haven
+# Solution: drupal-recipe adds repositories automatically
+drupal-recipe drupal/haven
+```
+
+**Scenario: Missing modules during install**
+```bash
+# Error: Module 'webform' not found during drupal-install
+# Solution: Check log and install manually
+MISSING=$(grep -oE "Module ['\"]?[a-z_]+['\"]? not found" data/install.log | head -1)
+composer require drupal/webform --with-all-dependencies
+# Then retry
+drupal-install recipes/haven
+```
+
+**Scenario: Race condition with data/ directory**
+```bash
+# Error: data/ directory doesn't exist when trying to log
+# Solution: Create data directory BEFORE starting
+mkdir -p data
+drupal-download drupal/cms  # This now creates data/ automatically
+```
+
+### Installation Monitoring with Automatic Failure Detection
+
+**Monitor installation logs and detect failures automatically:**
+
+```bash
+export LOG_FILE="data/demo-detached.log"
+export BASE_URL="http://$(grep DOMAIN .env | cut -d= -f2):$(grep PORT .env | cut -d= -f2)"
+
+# Monitor with failure detection
+while true; do
+  # Check if site is up (success)
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL" 2>/dev/null)
+  if [ "$HTTP_STATUS" = "200" ]; then
+    echo "✅ SUCCESS! Site is responding at $BASE_URL"
+    break
+  fi
+  
+  # Check for composer failures
+  if tail -20 "$LOG_FILE" 2>/dev/null | grep -qE "(Your requirements could not be resolved|Installation failed|composer error|Could not find package|stability.*dev)"; then
+    echo "❌ COMPOSER FAILURE DETECTED"
+    echo "Recent log entries:"
+    tail -30 "$LOG_FILE" | grep -E "(error|fail|require|constraint|stability)"
+    
+    # Stop everything
+    pc-stop
+    
+    # Handle stability issues
+    if tail -30 "$LOG_FILE" | grep -q "minimum-stability"; then
+      echo "Stability issue detected - need to adjust composer requirements"
+      # See "Handling Composer Failures" section below
+    fi
+    
+    break
+  fi
+  
+  # Check for PHP/drush errors
+  if tail -20 "$LOG_FILE" 2>/dev/null | grep -qE "(PHP Fatal|Drush command failed|Could not find|Class.*not found)"; then
+    echo "❌ INSTALLATION FAILURE DETECTED"
+    echo "Recent errors:"
+    tail -30 "$LOG_FILE" | grep -E "(Fatal|Error|failed|not found)"
+    
+    # Stop everything before retry
+    pc-stop
+    break
+  fi
+  
+  echo "$(date '+%H:%M:%S'): Installing... (HTTP: $HTTP_STATUS)"
+  sleep 10
+done
+```
+
+## Handling Composer Failures
+
+Composer failures during installation are common, especially with development versions or custom packages.
+
+### Common Composer Errors
+
+**Error 1: Minimum stability requirements**
+```
+Your requirements could not be resolved to an installable set of packages.
+  Problem 1
+    - Root package requires drupal/haven * -> satisfiable by drupal/haven[1.0.x-dev].
+    - drupal/haven 1.0.x-dev requires composer/installers ^2.0 -> found composer/installers[2.0.0] but the package is fixed to 1.x.
+```
+
+**Error 2: Missing packages or repositories**
+```
+Could not find a matching version of package drupal/custom_module. 
+Check the package spelling or your minimum-stability
+```
+
+**Error 3: Repository configuration**
+```
+Failed to download vendor/package from dist: The "https://..." file could not be downloaded (HTTP/1.1 404 Not Found)
+```
+
+### Resolution Steps
+
+**Step 1: Stop the environment**
+```bash
+pc-stop
+```
+
+**Step 2: Check composer.json for issues**
+```bash
+# Check stability settings
+cat composer.json | grep -A5 minimum-stability
+
+# Check repositories section
+cat composer.json | grep -A20 repositories
+
+# Check required packages
+cat composer.json | grep -A30 require
+```
+
+**Step 3: Fix stability issues**
+
+If the package requires dev stability:
+```bash
+# Option A: Set minimum-stability to dev
+composer config minimum-stability dev
+
+# Option B: Add specific package with @dev flag
+composer require drupal/package-name:@dev --no-update
+
+# Then update
+composer update
+```
+
+**Step 4: Fix repository issues**
+
+If the package is in a custom repository:
+```bash
+# Add custom repository if needed
+composer config repositories.custom vcs https://github.com/org/repo
+
+# Or add Drupal packages repo if missing
+composer config repositories.drupal composer https://packages.drupal.org/8
+```
+
+**Step 5: Clear composer cache and retry**
+```bash
+# Clear cache
+composer clear-cache
+
+# Remove lock file to regenerate
+rm composer.lock
+
+# Update with full dependencies
+composer update --with-all-dependencies
+```
+
+**Step 6: Restart installation**
+```bash
+# After fixing composer issues
+start-detached
+```
+
+### Automated Composer Failure Handler
+
+```bash
+handle_composer_failure() {
+  local log_file="${1:-data/demo-detached.log}"
+  
+  echo "Checking for composer failures..."
+  
+  # Check for stability issues
+  if grep -q "minimum-stability" "$log_file" 2>/dev/null; then
+    echo "⚠️  Stability issue detected - setting minimum-stability to dev"
+    composer config minimum-stability dev
+    composer update --no-install 2>&1 | tee -a "$log_file"
+    return 0
+  fi
+  
+  # Check for missing packages
+  if grep -q "Could not find.*package" "$log_file" 2>/dev/null; then
+    echo "⚠️  Missing package detected - checking repositories"
+    
+    # Ensure Drupal packages repository is configured
+    if ! composer config repositories.drupal 2>/dev/null; then
+      echo "Adding Drupal packages repository..."
+      composer config repositories.drupal composer https://packages.drupal.org/8
+      composer update --no-install 2>&1 | tee -a "$log_file"
+    fi
+    return 0
+  fi
+  
+  return 1
+}
+
+# Usage during installation monitoring
+if tail -50 data/demo-detached.log | grep -q "requirements could not be resolved"; then
+  pc-stop
+  handle_composer_failure data/demo-detached.log
+  start-detached
+fi
+```
+
+## Site Template Installation (New Drupal Recipe Convention)
+
+Drupal CMS 2.0+ no longer requires traditional installation profiles. Instead, it uses **site templates** - complete site configurations delivered as recipes that include:
+- Configuration (content types, fields, views, etc.)
+- Content (demo content, initial pages)
+- Themes (custom themes bundled with the template)
+- Dependencies (modules specified in the recipe)
+
+### Site Template Structure
+
+A site template (like "haven") typically has this structure:
+```
+recipes/haven/
+├── recipe.yml              # Recipe manifest
+├── config/                 # Configuration files
+│   ├── core.entity_form_display.node.page.default.yml
+│   ├── field.field.node.page.body.yml
+│   └── ...
+├── content/                # Default content
+│   └── ...
+├── files/                  # Asset files
+│   └── ...
+└── themes/                 # Bundled themes
+    └── haven_theme/
+```
+
+### Installation Command
+
+**For Haven site template:**
+```bash
+# Haven installs in recipes/haven/, Drupal core is in web/core/
+# The relative path from web/sites/default is ../../recipes/haven
+# Or from project root: drush site:install recipes/haven
+
+drush site:install recipes/haven --yes
+```
+
+**General site template pattern:**
+```bash
+# Site templates install via relative path from Drupal root
+drush site:install ../recipes/[template-name]
+```
+
+### Complete Site Template Installation Workflow
+
+**Recommended Approach: Using Discrete Commands**
+
+The easiest way to install a site template is using the discrete commands:
+
+```bash
+# Step 1: Download base Drupal (if not already done)
+drupal-download drupal/cms
+
+# Step 2: Install the site template package
+# This handles stability settings and repository configuration
+export DEMO_STABILITY=dev
+drupal-recipe drupal/haven
+
+# Step 3: Install the site
+# This handles drush detection, settings.php setup, and cleanup
+drupal-install recipes/haven
+```
+
+**Alternative: Manual composer approach**
+
+If you need more control over the process:
+
+```bash
+# Step 1: Install the site template package
+composer require drupal/haven --with-all-dependencies
+
+# Or with stability adjustment
+composer config minimum-stability dev
+composer require drupal/haven --with-all-dependencies
+
+# Or if it's a custom/private package
+composer config repositories.haven vcs https://github.com/org/haven
+composer require drupal/haven
+```
+
+**Step 2: Check for missing modules**
+
+The site template recipe may specify required modules. Check if they're installed:
+```bash
+# List enabled modules
+drush pm:list --type=module --status=enabled
+
+# Check if specific module is enabled
+drush pm:info module_name
+
+# Or check for missing dependencies
+drush site:install recipes/haven --yes 2>&1 | tee install.log
+```
+
+**Step 3: Handle missing module failures**
+
+If the recipe installation fails due to missing modules:
+```bash
+# Using the discrete drupal-install command (auto-handles this):
+# drupal-install will detect missing modules and suggest installation
+
+# Or manually:
+# Extract missing module names from error
+MISSING_MODULES=$(grep -oE "Module [a-z_]+ not found" install.log | sed 's/Module //;s/ not found//' | sort -u)
+
+# Install each missing module
+for module in $MISSING_MODULES; do
+  echo "Installing missing module: $module"
+  composer require drupal/$module --with-all-dependencies
+done
+
+# Restart with pc-stop to ensure clean state
+pc-stop
+start-detached
+```
+
+**Automated missing module handler with discrete commands:**
+
+```bash
+# The drupal-install command includes retry logic
+# If it fails with missing modules, run:
+
+# Install missing modules manually
+MISSING=$(grep -oE "Module ['\"]?[a-z_]+['\"]? not found" data/install.log | \
+  sed -E "s/.*['\"]?([a-z_]+)['\"]?.*/\1/" | sort -u)
+for module in $MISSING; do
+  composer require drupal/$module --with-all-dependencies
+done
+
+# Then retry installation (pc-stop not needed between composer and drupal-install)
+drupal-install recipes/haven
+```
+
+**Step 4: Verify recipe installation**
+
+```bash
+# Check that recipe was applied
+drush config:get core.extension module | grep haven
+
+# List enabled recipes (Drupal 10.3+)
+drush recipe:list 2>/dev/null || echo "Recipe list command not available"
+
+# Check for recipe content
+ls -la recipes/haven/content/ 2>/dev/null
+```
+
+**Step 5: Clear caches and verify site**
+```bash
+drush cache:rebuild
+
+# Check site responds
+curl -s -o /dev/null -w "%{http_code}" "http://$(grep DOMAIN .env | cut -d= -f2):$(grep PORT .env | cut -d= -f2)"
+```
+
+### Site Template Troubleshooting
+
+**Issue: Recipe not found**
+```bash
+# Check recipe exists at expected path
+ls -la recipes/haven/recipe.yml
+
+# Check recipe syntax
+head -20 recipes/haven/recipe.yml
+```
+
+**Issue: Modules specified in recipe not installing**
+- The recipe declares dependencies but composer must install them
+- Use the automated handler above to detect and install missing modules
+- Some modules may need manual installation if not on drupal.org
+
+**Issue: Content not imported**
+- Recipes may not auto-import content on installation
+- Check if content exists: `drush content:list`
+- Manually import if needed: `drush content:import recipes/haven/content/`
+
+## File Permissions and Settings.php Management
+
+File permission issues commonly cause installation failures or site errors after installation.
+
+### Critical Permission Checks
+
+**Step 1: Check web/sites/default directory permissions**
+```bash
+# The directory must be writable during installation
+ls -ld web/sites/default
+
+# Expected: drwxrwxrwx or drwxr-xr-x (writable)
+# If not writable, fix:
+chmod 755 web/sites/default
+```
+
+**Step 2: Check settings.php permissions**
+```bash
+# Check current permissions
+ls -l web/sites/default/settings.php
+
+# During installation: must be writable
+chmod 644 web/sites/default/settings.php
+
+# After installation: should be read-only for security
+chmod 444 web/sites/default/settings.php
+```
+
+**Step 3: Verify settings.php content**
+
+Common issue: Drush `site:install` appends a `$databases` array to the end of settings.php, which conflicts with `nix-settings.php` include.
+
+```bash
+# Check if settings.php has nix-settings include
+grep -n "nix-settings" web/sites/default/settings.php
+
+# Check if duplicate database config was appended (problem!)
+tail -30 web/sites/default/settings.php | grep -A10 "databases"
+
+# The file should end with the nix-settings include, NOT a databases array
+```
+
+### Settings.php Repair Workflow
+
+**When settings.php gets corrupted with duplicate database config:**
+
+```bash
+repair_settings_php() {
+  local settings_file="web/sites/default/settings.php"
+  local backup_file="web/sites/default/settings.php.backup"
+  
+  echo "Checking settings.php for corruption..."
+  
+  # Backup current file
+  cp "$settings_file" "$backup_file"
+  
+  # Check if drush appended database config (it comes after our include)
+  if grep -n "^\$databases" "$settings_file" | tail -1 | grep -qE "^[0-9]+:"; then
+    local db_line=$(grep -n "^\$databases" "$settings_file" | tail -1 | cut -d: -f1)
+    local total_lines=$(wc -l < "$settings_file")
+    
+    echo "Found \$databases array at line $db_line (file has $total_lines lines)"
+    
+    # Check if nix-settings include comes before it
+    local nix_line=$(grep -n "nix-settings.php" "$settings_file" | tail -1 | cut -d: -f1)
+    
+    if [ -n "$nix_line" ] && [ "$nix_line" -lt "$db_line" ]; then
+      echo "❌ CORRUPTION DETECTED: \$databases array was appended after nix-settings include"
+      echo "Removing duplicate database configuration..."
+      
+      # Remove everything after nix-settings.php line
+      head -n "$nix_line" "$settings_file" > "${settings_file}.tmp"
+      mv "${settings_file}.tmp" "$settings_file"
+      
+      # Ensure proper ending
+      echo "" >> "$settings_file"
+      
+      echo "✅ Repaired settings.php - removed duplicate database config"
+    fi
+  fi
+  
+  # Verify nix-settings.php exists and is included
+  if [ ! -f "web/sites/default/settings.nix.php" ]; then
+    echo "⚠️  settings.nix.php missing - regenerating..."
+    nix-settings $(grep PROJECT_NAME .env | cut -d= -f2) web "$(ls data/*-db/mysql.sock 2>/dev/null | head -1)"
+  fi
+  
+  # Fix permissions
+  chmod 644 "$settings_file"
+  
+  # Verify the include is present
+  if ! grep -q "settings.nix.php" "$settings_file"; then
+    echo "Adding nix-settings.php include..."
+    echo "require_once __DIR__ . '/settings.nix.php';" >> "$settings_file"
+  fi
+}
+
+# Usage after detecting database connection issues
+repair_settings_php
+```
+
+### Pre-Installation Permission Setup
+
+**Always run this before `drush site:install`:**
+
+```bash
+prepare_for_install() {
+  echo "Preparing file permissions for installation..."
+  
+  # Ensure sites/default is writable
+  if [ -d "web/sites/default" ]; then
+    chmod 755 web/sites/default
+    echo "✓ web/sites/default is writable"
+  else
+    mkdir -p web/sites/default
+    chmod 755 web/sites/default
+    echo "✓ Created web/sites/default"
+  fi
+  
+  # Create settings.php if it doesn't exist
+  if [ ! -f "web/sites/default/settings.php" ]; then
+    if [ -f "web/sites/default/default.settings.php" ]; then
+      cp web/sites/default/default.settings.php web/sites/default/settings.php
+      echo "✓ Created settings.php from default.settings.php"
+    fi
+  fi
+  
+  # Ensure settings.php is writable for installation
+  if [ -f "web/sites/default/settings.php" ]; then
+    chmod 644 web/sites/default/settings.php
+    echo "✓ settings.php is writable"
+  fi
+  
+  # Ensure nix-settings.php will be created and included
+  if [ ! -f "web/sites/default/settings.nix.php" ]; then
+    echo "Note: nix-settings.php will be generated during installation"
+  fi
+}
+
+# Usage before site:install
+prepare_for_install
+drush site:install recipes/haven --yes
+```
+
+### Post-Installation Permission Lockdown
+
+**Secure the site after successful installation:**
+
+```bash
+secure_installation() {
+  echo "Securing file permissions..."
+  
+  # Make settings.php read-only
+  if [ -f "web/sites/default/settings.php" ]; then
+    chmod 444 web/sites/default/settings.php
+    echo "✓ settings.php is now read-only (444)"
+  fi
+  
+  # Keep sites/default accessible but not writable by all
+  chmod 755 web/sites/default
+  
+  # Secure any other sensitive files
+  if [ -f "web/sites/default/settings.nix.php" ]; then
+    chmod 444 web/sites/default/settings.nix.php
+  fi
+}
+
+# Usage after successful install
+secure_installation
+```
+
+### Complete Installation Checklist
+
+Before running `drush site:install`, verify:
+
+```bash
+pre_install_checklist() {
+  local errors=0
+  
+  echo "=== Pre-Installation Checklist ==="
+  
+  # 1. Services running
+  if ! pc-status | grep -q "running"; then
+    echo "❌ Services not running - start with: start-detached"
+    ((errors++))
+  else
+    echo "✓ Services are running"
+  fi
+  
+  # 2. Database accessible
+  if [ ! -S "data/$(grep PROJECT_NAME .env | cut -d= -f2)-db/mysql.sock" 2>/dev/null ]; then
+    echo "⚠️  MySQL socket not found - may still be starting"
+  else
+    echo "✓ MySQL socket exists"
+  fi
+  
+  # 3. sites/default exists and is writable
+  if [ ! -d "web/sites/default" ]; then
+    mkdir -p web/sites/default
+    echo "✓ Created web/sites/default"
+  fi
+  
+  if [ ! -w "web/sites/default" ]; then
+    chmod 755 web/sites/default
+    echo "✓ Made web/sites/default writable"
+  fi
+  
+  # 4. settings.php exists and is writable
+  if [ ! -f "web/sites/default/settings.php" ]; then
+    if [ -f "web/sites/default/default.settings.php" ]; then
+      cp web/sites/default/default.settings.php web/sites/default/settings.php
+      echo "✓ Created settings.php"
+    fi
+  fi
+  
+  if [ -f "web/sites/default/settings.php" ]; then
+    chmod 644 web/sites/default/settings.php
+    echo "✓ settings.php is writable"
+  fi
+  
+  # 5. No conflicting database config
+  if grep -q "^\$databases.*=.*\[" web/sites/default/settings.php 2>/dev/null; then
+    if ! grep -q "nix-settings.php" web/sites/default/settings.php 2>/dev/null; then
+      echo "❌ settings.php has hardcoded database config but no nix-settings include"
+      echo "   This may cause conflicts. Consider regenerating settings.php"
+      ((errors++))
+    fi
+  fi
+  
+  # 6. Check composer dependencies
+  if [ ! -d "vendor" ]; then
+    echo "❌ vendor directory missing - run: composer install"
+    ((errors++))
+  else
+    echo "✓ vendor directory exists"
+  fi
+  
+  if [ $errors -eq 0 ]; then
+    echo ""
+    echo "✅ All checks passed! Ready to install."
+    return 0
+  else
+    echo ""
+    echo "❌ $errors check(s) failed. Fix issues above before installing."
+    return 1
+  fi
+}
+
+# Usage
+pre_install_checklist && drush site:install recipes/haven --yes
+```
+
 ## Decision Tree for Agents
 
 **Full Workflow for Any Drupal Project:**
@@ -1569,5 +2355,6 @@ which docker && docker ps 2>/dev/null | grep -qE "(php|nginx|apache)" && echo "�
 - **Use interactive prompts with arrow keys** - Don't just list defaults as text. Use pickers where user can press Enter or arrow through options.
 - **Quote .env values with spaces** - `SITE_NAME="Commerce Kickstart"` not `SITE_NAME=Commerce Kickstart`. Don't add optional variables unless necessary.
 - **Background vs Interactive** - `start-detached` is better for agents; `nix run` for user TUI
+- **Use discrete commands for debugging** - If `start-demo` fails, use `drupal-download`, `drupal-recipe`, `drupal-install` individually
 - **Get credentials via drush uli** - Don't wait for install output, generate fresh login link
 - **MySQL socket causes Nix failures without git** - Socket files in data/ can't be tracked
