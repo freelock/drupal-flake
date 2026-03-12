@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+#
+# drupal-install: Install Drupal with recipe/profile and handle settings.php
+#
+# Usage: drupal-install [recipe-or-profile] [options]
+#   recipe-or-profile - Recipe path (recipes/haven) or install profile (standard, minimal)
+#   options          - Additional drush site:install options
+#
+# Environment variables:
+#   DEMO_RECIPE - Recipe path (alternative to first argument)
+#
+# This script handles:
+# - Detecting drush location (vendor/bin/drush or bin/drush)
+# - Pre-installation permission checks
+# - Running site:install with proper error handling
+# - Post-install settings.php cleanup (removing duplicate DB config)
+# - File permission lockdown
+#
+
+set -e
+
+# Detect drush binary
+DRUSH_BIN=""
+detect_drush() {
+  if [ -f "vendor/bin/drush" ]; then
+    DRUSH_BIN="./vendor/bin/drush"
+  elif [ -f "bin/drush" ]; then
+    DRUSH_BIN="./bin/drush"
+  elif command -v drush >/dev/null 2>&1; then
+    DRUSH_BIN="drush"
+  else
+    echo "Error: Drush not found"
+    echo "Expected at: vendor/bin/drush or bin/drush"
+    return 1
+  fi
+  echo "Using drush: $DRUSH_BIN"
+}
+
+# Pre-installation checks and setup
+pre_install_setup() {
+  echo "========================================="
+  echo "Pre-installation setup"
+  echo "========================================="
+  
+  # Ensure sites/default exists and is writable
+  if [ ! -d "web/sites/default" ]; then
+    echo "Creating web/sites/default directory..."
+    mkdir -p web/sites/default
+  fi
+  
+  if [ ! -w "web/sites/default" ]; then
+    echo "Making web/sites/default writable..."
+    chmod 755 web/sites/default
+  fi
+  
+  # Create settings.php from default if it doesn't exist
+  if [ ! -f "web/sites/default/settings.php" ]; then
+    if [ -f "web/sites/default/default.settings.php" ]; then
+      echo "Creating settings.php from default..."
+      # Copy without comments, keeping only active configuration
+      grep -v '^#\|^/\*\|^ \*\|^ \*/\|^$' web/sites/default/default.settings.php | \
+        grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
+    fi
+  fi
+  
+  # Ensure settings.php is writable
+  if [ -f "web/sites/default/settings.php" ]; then
+    chmod 644 web/sites/default/settings.php
+    echo "✓ settings.php is writable"
+  fi
+  
+  # Add essential settings if not present
+  if [ -f "web/sites/default/settings.php" ]; then
+    # Skip permissions hardening
+    if ! grep -q "skip_permissions_hardening" web/sites/default/settings.php; then
+      echo '$settings["skip_permissions_hardening"] = TRUE;' >> web/sites/default/settings.php
+    fi
+    
+    # Config sync directory
+    if ! grep -q "config_sync_directory" web/sites/default/settings.php; then
+      echo '$settings["config_sync_directory"] = "../config/sync";' >> web/sites/default/settings.php
+    fi
+    
+    # Local settings include
+    if ! grep -q "settings.local.php" web/sites/default/settings.php; then
+      echo 'if (file_exists($app_root . "/" . $site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
+      echo '  include $app_root . "/" . $site_path . "/settings.local.php";' >> web/sites/default/settings.php
+      echo "}" >> web/sites/default/settings.php
+    fi
+  fi
+  
+  # Run nix-settings if available
+  if command -v nix-settings >/dev/null 2>&1; then
+    echo "Running nix-settings..."
+    PROJECT_NAME=$(grep PROJECT_NAME .env 2>/dev/null | cut -d= -f2 || basename "$(pwd)")
+    nix-settings "$PROJECT_NAME" web "data/${PROJECT_NAME}-db/mysql.sock" || true
+  fi
+  
+  # Backup settings.php before install
+  cp web/sites/default/settings.php web/sites/default/settings.php.backup
+  echo "✓ Pre-installation setup complete"
+}
+
+# Post-installation cleanup
+post_install_cleanup() {
+  echo ""
+  echo "========================================="
+  echo "Post-installation cleanup"
+  echo "========================================="
+  
+  # Check if drush appended database config (comes after our nix-settings include)
+  if grep -n "^\$databases" web/sites/default/settings.php >/dev/null 2>&1; then
+    # Find where the databases array starts
+    DB_LINE=$(grep -n "^\$databases" web/sites/default/settings.php | tail -1 | cut -d: -f1)
+    NIX_LINE=$(grep -n "nix-settings.php" web/sites/default/settings.php | tail -1 | cut -d: -f1)
+    
+    if [ -n "$NIX_LINE" ] && [ -n "$DB_LINE" ] && [ "$NIX_LINE" -lt "$DB_LINE" ]; then
+      echo "Removing duplicate database configuration from settings.php..."
+      # Keep only up to and including the nix-settings include
+      head -n "$NIX_LINE" web/sites/default/settings.php > web/sites/default/settings.php.tmp
+      mv web/sites/default/settings.php.tmp web/sites/default/settings.php
+      echo "✓ Removed duplicate database config"
+    fi
+  fi
+  
+  # Restore from backup if settings.php is now missing content
+  if [ -f "web/sites/default/settings.php.backup" ]; then
+    if ! grep -q "settings.nix.php" web/sites/default/settings.php 2>/dev/null; then
+      echo "Restoring settings.php with nix-settings include..."
+      cp web/sites/default/settings.php.backup web/sites/default/settings.php
+    fi
+    rm -f web/sites/default/settings.php.backup
+  fi
+  
+  # Ensure nix-settings.php is still included
+  if [ -f "web/sites/default/settings.nix.php" ] && \
+     ! grep -q "settings.nix.php" web/sites/default/settings.php 2>/dev/null; then
+    echo "Adding nix-settings.php include..."
+    echo "require_once __DIR__ . '/settings.nix.php';" >> web/sites/default/settings.php
+  fi
+  
+  # Lock down permissions
+  chmod 444 web/sites/default/settings.php 2>/dev/null || true
+  chmod 755 web/sites/default
+  echo "✓ settings.php permissions locked down"
+  
+  # Clear caches
+  echo "Clearing caches..."
+  $DRUSH_BIN cache:rebuild 2>/dev/null || true
+  
+  echo "✓ Post-installation cleanup complete"
+}
+
+# Main installation
+main() {
+  # Parse arguments
+  RECIPE="${1:-${DEMO_RECIPE:-standard}}"
+  DRUSH_OPTS="${2:--y}"
+  
+  echo "========================================="
+  echo "Installing Drupal"
+  echo "Recipe/Profile: $RECIPE"
+  echo "========================================="
+  
+  # Detect drush
+  detect_drush || exit 1
+  
+  # Pre-install setup
+  pre_install_setup
+  
+  # Check if Drupal is already installed
+  if $DRUSH_BIN status --fields=bootstrap 2>/dev/null | grep -q "Successful"; then
+    echo "⚠️  Drupal appears to already be installed"
+    echo "Use 'drush sql:drop' first if you want to reinstall"
+    exit 0
+  fi
+  
+  # Run site:install
+  echo ""
+  echo "Running: $DRUSH_BIN site:install $RECIPE $DRUSH_OPTS"
+  echo "========================================="
+  
+  if $DRUSH_BIN site:install "$RECIPE" $DRUSH_OPTS 2>&1 | tee -a data/install.log; then
+    echo ""
+    echo "✅ Installation successful!"
+    
+    # Post-install cleanup
+    post_install_cleanup
+    
+    # Show credentials
+    echo ""
+    echo "========================================="
+    echo "Installation complete!"
+    echo "========================================="
+    echo "Getting admin login link..."
+    $DRUSH_BIN uli 2>/dev/null || echo "Run 'drush uli' to get login link"
+    
+  else
+    echo ""
+    echo "❌ Installation failed!"
+    echo "Checking for issues..."
+    
+    # Check log for common errors
+    if [ -f "data/install.log" ]; then
+      # Check for missing modules
+      if grep -q "Module.*not found" data/install.log 2>/dev/null; then
+        echo ""
+        echo "⚠️  Missing modules detected!"
+        grep "Module.*not found" data/install.log | tail -5
+        echo ""
+        echo "Install missing modules with:"
+        echo "  drupal-recipe <package-name>"
+        echo "Then re-run: drupal-install"
+      fi
+      
+      # Check for database issues
+      if grep -q "Access denied\|Connection refused\|database.*not found" data/install.log 2>/dev/null; then
+        echo ""
+        echo "⚠️  Database connection issue!"
+        echo "Ensure MySQL is running: pc-status"
+      fi
+    fi
+    
+    # Try to restore settings.php
+    if [ -f "web/sites/default/settings.php.backup" ]; then
+      mv web/sites/default/settings.php.backup web/sites/default/settings.php
+    fi
+    
+    exit 1
+  fi
+}
+
+# Handle missing module error and auto-retry
+retry_with_modules() {
+  local recipe="$1"
+  local log_file="${2:-data/install.log}"
+  
+  # Extract missing modules from log
+  local missing=$(grep -oE "Module ['\"]?[a-z_]+['\"]? not found" "$log_file" 2>/dev/null | \
+    sed -E "s/.*['\"]?([a-z_]+)['\"]?.*/\1/" | sort -u)
+  
+  if [ -n "$missing" ]; then
+    echo "Auto-installing missing modules: $missing"
+    
+    for module in $missing; do
+      echo "Installing drupal/$module..."
+      if composer require drupal/$module --with-all-dependencies 2>&1 | tee -a data/install.log; then
+        echo "✅ Installed $module"
+      else
+        echo "❌ Failed to install $module"
+        return 1
+      fi
+    done
+    
+    # Retry installation
+    echo "Retrying Drupal installation..."
+    drupal-install "$recipe"
+    return $?
+  fi
+  
+  return 1
+}
+
+# Run main or export functions
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  main "$@"
+fi

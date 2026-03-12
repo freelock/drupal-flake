@@ -519,6 +519,12 @@
             # Adds a "demo" command to start the demo scripts
             nativeBuildInputs = [
               self'.packages.demo
+              (pkgs.writeScriptBin "drupal-download"
+                (builtins.readFile ./.services/bin/drupal-download))
+              (pkgs.writeScriptBin "drupal-recipe"
+                (builtins.readFile ./.services/bin/drupal-recipe))
+              (pkgs.writeScriptBin "drupal-install"
+                (builtins.readFile ./.services/bin/drupal-install))
               (pkgs.writeScriptBin "start-config" ''
                 #!${pkgs.bash}/bin/bash
                 nix run .#config
@@ -814,6 +820,9 @@
                 echo -e "\033[1;32mstop-all\033[0m                Stop ALL process-compose development environments"
                 echo -e "\033[1;32mnix run .#demo\033[0m          Set up a new Drupal site, or start servers"
                 echo -e "\033[1;32mstart-demo\033[0m              Set up a new Drupal site, or start servers"
+                echo -e "\033[1;32mdrupal-download\033[0m         Download Drupal package (for manual/debug install)"
+                echo -e "\033[1;32mdrupal-recipe\033[0m           Install site template via composer"
+                echo -e "\033[1;32mdrupal-install\033[0m          Install Drupal with recipe/profile"
                 echo -e "\033[1;32mstart-config\033[0m            Start servers and install Drupal from config - CLOBBERS EXISTING DATABASE"
                 echo -e "\033[1;32mpc-status\033[0m               Check process-compose status and socket"
                 echo -e "\033[1;32mpc-attach\033[0m               Attach to running process-compose TUI"

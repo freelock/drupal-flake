@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+#
+# drupal-recipe: Install a Drupal site template (recipe) via composer
+#
+# Usage: drupal-recipe <recipe-package> [options]
+#   recipe-package - Composer package for the site template (e.g., drupal/haven)
+#   options        - Additional composer options
+#
+# Environment variables:
+#   DEMO_STABILITY - Set minimum-stability if needed (dev, alpha, beta, RC, stable)
+#   DEMO_RECIPE    - Recipe path for installation (e.g., recipes/haven)
+#
+# This script handles:
+# - Installing the site template package via composer
+# - Adjusting minimum-stability if needed
+# - Adding custom repositories if specified
+#
+
+set -e
+
+# Determine PHP and composer availability
+PHP_BIN="$(which php 2>/dev/null || echo '')"
+COMPOSER_BIN="$(which composer 2>/dev/null || echo '')"
+
+if [ -z "$PHP_BIN" ] || [ -z "$COMPOSER_BIN" ]; then
+  echo "Error: PHP and composer must be available"
+  echo "Run this from within 'nix develop' shell"
+  exit 1
+fi
+
+# Parse arguments
+RECIPE_PACKAGE="${1:-}"
+COMPOSER_OPTS="${2:---with-all-dependencies}"
+
+if [ -z "$RECIPE_PACKAGE" ]; then
+  echo "Error: Recipe package is required"
+  echo "Usage: drupal-recipe <recipe-package> [options]"
+  echo "Example: drupal-recipe drupal/haven"
+  exit 1
+fi
+
+echo "========================================="
+echo "Installing site template: $RECIPE_PACKAGE"
+echo "========================================="
+
+# Check if data directory exists, create if needed
+if [ ! -d "data" ]; then
+  echo "Creating data directory..."
+  mkdir -p data
+fi
+
+# Pre-check: Verify vendor directory exists
+if [ ! -d "vendor" ]; then
+  echo "Error: vendor/ directory not found"
+  echo "Run 'drupal-download' first or ensure you're in a Drupal project directory"
+  exit 1
+fi
+
+# Handle stability settings
+if [ -n "$DEMO_STABILITY" ]; then
+  CURRENT_STABILITY=$($COMPOSER_BIN config minimum-stability 2>/dev/null || echo "stable")
+  if [ "$CURRENT_STABILITY" != "$DEMO_STABILITY" ]; then
+    echo "Adjusting minimum-stability from '$CURRENT_STABILITY' to '$DEMO_STABILITY'..."
+    $COMPOSER_BIN config minimum-stability "$DEMO_STABILITY"
+  fi
+fi
+
+# Check if Drupal packages repo is configured
+if ! $COMPOSER_BIN config repositories.drupal >/dev/null 2>&1; then
+  echo "Adding Drupal packages repository..."
+  $COMPOSER_BIN config repositories.drupal composer https://packages.drupal.org/8
+fi
+
+# Build composer require command
+COMPOSER_CMD="$COMPOSER_BIN require $RECIPE_PACKAGE $COMPOSER_OPTS --no-interaction"
+
+echo "Running: $COMPOSER_CMD"
+if $COMPOSER_CMD 2>&1 | tee -a data/recipe.log; then
+  echo "✅ Site template package installed successfully"
+else
+  echo "❌ Failed to install site template"
+  echo "Checking for common issues..."
+  
+  # Check for stability issues in log
+  if grep -q "minimum-stability" data/recipe.log 2>/dev/null; then
+    echo ""
+    echo "⚠️  Stability issue detected! The package may require 'dev' stability."
+    echo "Try running with: DEMO_STABILITY=dev drupal-recipe $RECIPE_PACKAGE"
+  fi
+  
+  # Check for repository issues
+  if grep -q "Could not find.*package" data/recipe.log 2>/dev/null; then
+    echo ""
+    echo "⚠️  Package not found! You may need to add a custom repository:"
+    echo "  composer config repositories.custom vcs <repository-url>"
+  fi
+  
+  exit 1
+fi
+
+# Verify recipe exists
+RECIPE_PATH="${DEMO_RECIPE:-recipes/$(echo "$RECIPE_PACKAGE" | sed 's/.*\///')}"
+if [ -d "$RECIPE_PATH" ]; then
+  echo "✅ Recipe directory found at: $RECIPE_PATH"
+  
+  # Check recipe.yml exists
+  if [ -f "$RECIPE_PATH/recipe.yml" ]; then
+    echo "✅ Recipe manifest found: $RECIPE_PATH/recipe.yml"
+  else
+    echo "⚠️  Warning: No recipe.yml found in $RECIPE_PATH"
+    echo "   This may be a module/theme rather than a site template recipe"
+  fi
+else
+  echo "⚠️  Recipe directory not found at expected path: $RECIPE_PATH"
+  echo "   Checking alternative locations..."
+  
+  # Try to find the recipe
+  FOUND_RECIPE=$(find . -name "recipe.yml" -path "*/recipes/*" 2>/dev/null | head -1)
+  if [ -n "$FOUND_RECIPE" ]; then
+    echo "   Found recipe at: $FOUND_RECIPE"
+    RECIPE_DIR=$(dirname "$FOUND_RECIPE")
+    echo "   Use this path with drupal-install: ${RECIPE_DIR#./}"
+  else
+    echo "   No recipe.yml found in the project"
+  fi
+fi
+
+echo ""
+echo "✅ Recipe step complete"
+echo "Next step: Run 'drupal-install' to install the site"

@@ -31,8 +31,15 @@ let
     '';
   });
 
-  # Create nix-settings package separately
-  nix-settings = pkgs.writeScriptBin "nix-settings" (builtins.readFile ./bin/nix-settings);
+  # Create helper script packages
+  nix-settings =
+    pkgs.writeScriptBin "nix-settings" (builtins.readFile ./bin/nix-settings);
+  drupal-download = pkgs.writeScriptBin "drupal-download"
+    (builtins.readFile ./bin/drupal-download);
+  drupal-recipe =
+    pkgs.writeScriptBin "drupal-recipe" (builtins.readFile ./bin/drupal-recipe);
+  drupal-install = pkgs.writeScriptBin "drupal-install"
+    (builtins.readFile ./bin/drupal-install);
 
 in
 {
@@ -90,7 +97,7 @@ in
       #!${pkgs.bash}/bin/bash
       export PHP_MEMORY_LIMIT=-1
       # Support both vendor/bin (standard) and bin/ (kickstart-style) for binaries
-      export PATH="${php}/bin:${config.php.packages.composer}/bin:$(pwd)/vendor/bin:$(pwd)/bin:$PATH"
+      export PATH="${php}/bin:${config.php.packages.composer}/bin:${drupal-download}/bin:${drupal-recipe}/bin:${drupal-install}/bin:${nix-settings}/bin:$(pwd)/vendor/bin:$(pwd)/bin:$PATH"
 
       # Create .env file if custom project name is provided
       if [ -n "${config.customProjectName}" ] && [ ! -f ".env" ] && [ -f ".env.example" ]; then
@@ -98,136 +105,83 @@ in
         cp .env.example .env
         sed -i 's/^# PROJECT_NAME=.*/PROJECT_NAME=${config.customProjectName}/' .env
       fi
-      
+
+      # Create data directory early to avoid race conditions
+      if [ ! -d "data" ]; then
+        echo "Creating data directory..."
+        mkdir -p data
+      fi
+
       if [ ! -f "web/index.php" ]; then
         # Use environment variables if set, otherwise use config defaults
         DRUPAL_PKG="''${DEMO_DRUPAL_PACKAGE:-${config.drupalPackage}}"
         COMPOSER_OPTS="''${DEMO_COMPOSER_OPTIONS:-${config.composerOptions}}"
+        RECIPE="''${DEMO_RECIPE:-${config.recipe}}"
         
-        echo "Installing Drupal package: $DRUPAL_PKG..."
-        
-        # Determine the project name from the package (last part after /)
-        PROJECT_DIR=$(echo "$DRUPAL_PKG" | sed 's/.*\///' | sed 's/-project$//')
-        
-        # Run composer create-project - it will create a directory based on the package name
-        composer create-project $DRUPAL_PKG $COMPOSER_OPTS
-        
-        # Find the directory that was just created (most recent directory)
-        # For drupal/cms -> creates "cms"
-        # For centarro/commerce-kickstart-project -> creates "kickstart"
-        if [ -d "$PROJECT_DIR" ]; then
-          INSTALL_DIR="$PROJECT_DIR"
-        elif [ -d "cms" ]; then
-          INSTALL_DIR="cms"
-        elif [ -d "kickstart" ]; then
-          INSTALL_DIR="kickstart"
-        else
-          # Find the most recently created directory
-          INSTALL_DIR=$(ls -td */ 2>/dev/null | head -1 | sed 's:/$::')
-          echo "Detected install directory: $INSTALL_DIR"
+        echo "========================================="
+        echo "Drupal Installation Process"
+        echo "Package: $DRUPAL_PKG"
+        if [ -n "$RECIPE" ]; then
+          echo "Recipe: $RECIPE"
         fi
+        echo "========================================="
         
-        if [ -z "$INSTALL_DIR" ] || [ ! -d "$INSTALL_DIR" ]; then
-          echo "Error: Could not find installation directory"
+        # Step 1: Download Drupal using drupal-download helper
+        echo ""
+        echo "Step 1: Downloading Drupal package..."
+        drupal-download "$DRUPAL_PKG" "" "$COMPOSER_OPTS" 2>&1 | tee -a data/install.log
+        
+        if [ $? -ne 0 ]; then
+          echo "❌ Download step failed! Check data/install.log"
           exit 1
         fi
         
-        echo "Moving files from $INSTALL_DIR directory..."
-        
-        # Move files from install directory, handling conflicts carefully
-        for item in "$INSTALL_DIR"/*; do
-          [ -e "$item" ] || continue  # Skip if glob didn't match anything
-          basename_item=$(basename "$item")
-          if [ -e "$basename_item" ]; then
-            echo "Warning: $basename_item already exists, merging contents..."
-            if [ -d "$item" ] && [ -d "$basename_item" ]; then
-              # Merge directories
-              cp -r "$item"/* "$basename_item"/ 2>/dev/null || true
-              cp -r "$item"/.[^.]* "$basename_item"/ 2>/dev/null || true
-            else
-              # Replace files
-              rm -rf "$basename_item"
-              mv "$item" ./
-            fi
-          else
-            mv "$item" ./
+        # Step 2: Install site template recipe if specified
+        if [ -n "$RECIPE" ] && echo "$RECIPE" | grep -qE "^[a-z]+/[a-z_]+$"; then
+          # Recipe looks like a composer package (drupal/haven format)
+          echo ""
+          echo "Step 2: Installing site template recipe..."
+          drupal-recipe "$RECIPE" 2>&1 | tee -a data/install.log
+          
+          if [ $? -ne 0 ]; then
+            echo "⚠️  Recipe installation had issues, will try to continue..."
           fi
-        done
+        fi
         
-        # Move hidden files (excluding . and ..)
-        for item in "$INSTALL_DIR"/.[^.]*; do
-          [ -e "$item" ] || continue  # Skip if glob didn't match anything
-          basename_item=$(basename "$item")
-          if [ -e "$basename_item" ]; then
-            echo "Warning: hidden file $basename_item already exists, replacing..."
-            rm -rf "$basename_item"
+        # Step 3: Run the actual Drupal installation
+        echo ""
+        echo "Step 3: Installing Drupal..."
+        drupal-install "$RECIPE" "-y" 2>&1 | tee -a data/install.log
+        
+        if [ $? -ne 0 ]; then
+          echo "❌ Installation failed! Check data/install.log"
+          # Try to identify the issue
+          if grep -q "Module.*not found" data/install.log 2>/dev/null; then
+            echo ""
+            echo "Missing modules detected. Trying auto-fix..."
+            # Extract and install missing modules
+            MISSING=$(grep -oE "Module ['\"]?[a-z_]+['\"]? not found" data/install.log | \
+              sed -E "s/.*['\"]?([a-z_]+)['\"]?.*/\1/" | sort -u)
+            for module in $MISSING; do
+              echo "Installing missing module: $module"
+              composer require drupal/$module --with-all-dependencies 2>&1 | tee -a data/install.log || true
+            done
+            # Retry installation
+            echo "Retrying installation with new modules..."
+            drupal-install "$RECIPE" "-y" 2>&1 | tee -a data/install.log
           fi
-          mv "$item" ./
-        done
-        
-        # Remove install directory if empty, otherwise warn
-        if rmdir "$INSTALL_DIR" 2>/dev/null; then
-          echo "Cleaned up $INSTALL_DIR directory"
-        else
-          echo "Warning: $INSTALL_DIR directory not empty, contents:"
-          ls -la "$INSTALL_DIR"/ || true
+          exit 1
         fi
         
-        # Run composer install to ensure dependencies are up to date
-        composer install
-        
-        # Install drush if not present (vanilla core doesn't include it)
-        if [ ! -f "vendor/bin/drush" ] && [ ! -f "bin/drush" ]; then
-          echo "Drush not found, installing..."
-          composer require drush/drush --with-all-dependencies
-        fi
-
-        # Copy settings file without comments and enable local settings include
-        grep -v '^#\|^/\*\|^ \*\|^ \*/\|^$' web/sites/default/default.settings.php | grep -v '^/\*' | grep -v '^ \*' | grep -v '^ \*/' > web/sites/default/settings.php
-        echo 'if (file_exists($app_root . "/" . $site_path . "/settings.local.php")) {' >> web/sites/default/settings.php
-        echo '  include $app_root . "/" . $site_path . "/settings.local.php";' >> web/sites/default/settings.php
-        echo "}" >> web/sites/default/settings.php
-
-        # Skip perms hardening, set config directory
-        echo '$settings["skip_permissions_hardening"] = TRUE;' >> web/sites/default/settings.php
-        echo '$settings["config_sync_directory"] = "../config/sync";' >> web/sites/default/settings.php
-
-        # Run nix-settings to configure database and development settings
-        ${nix-settings}/bin/nix-settings ${config.projectName} web ${config.dbSocket}
-
-        chmod 777 web/sites/default/settings.php
-        chmod 777 web/sites/default
-
-        # Back up settings.php - drush site:install adds $databases to end of settings.php
-        # which conflicts with our nix-settings configuration
-        cp web/sites/default/settings.php web/sites/default/settings.php.tmp
-
-        # Use recipe if specified, otherwise use default install
-        RECIPE="''${DEMO_RECIPE:-${config.recipe}}"
-        if [ -n "$RECIPE" ]; then
-          echo "Installing Drupal with recipe: $RECIPE"
-          drush site:install "$RECIPE" -y
-        else
-          echo "Installing Drupal..."
-          drush site:install standard -y
-        fi
-
-        # Restore settings.php to remove the database block drush added
-        # Our nix-settings.php handles database configuration separately
-        mv web/sites/default/settings.php.tmp web/sites/default/settings.php
-        
-        # Clear caches after installation to ensure site loads properly
-        echo "Clearing caches..."
-        drush cache:rebuild || true
+        echo ""
+        echo "✅ Drupal installation complete!"
       else
         echo "Drupal CMS already installed"
       fi
     '';
 
     outputs.settings = {
-      processes.${name} = {
-        command = "${config.package}/bin/init";
-      };
+      processes.${name} = { command = "${config.package}/bin/init"; };
     };
   };
 }

@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+#
+# drupal-download: Download Drupal project via composer create-project
+#
+# Usage: drupal-download [package] [directory] [options]
+#   package    - Composer package (default: drupal/cms)
+#   directory  - Target directory (default: auto-detected from package name)
+#   options    - Additional composer options (--stability=dev, etc.)
+#
+# Environment variables:
+#   DEMO_STABILITY - Set minimum-stability (dev, alpha, beta, RC, stable)
+#
+
+set -e
+
+# Determine PHP and composer availability
+if [ -n "$PHP_VERSION" ]; then
+  PHP_BIN="$(which php)"
+  COMPOSER_BIN="$(which composer)"
+else
+  # Try to find PHP from nix environment
+  PHP_BIN="$(which php 2>/dev/null || echo '')"
+  COMPOSER_BIN="$(which composer 2>/dev/null || echo '')"
+fi
+
+if [ -z "$PHP_BIN" ] || [ -z "$COMPOSER_BIN" ]; then
+  echo "Error: PHP and composer must be available"
+  echo "Run this from within 'nix develop' shell"
+  exit 1
+fi
+
+# Parse arguments
+DRUPAL_PACKAGE="${1:-drupal/cms}"
+PROJECT_DIR="${2:-}"
+COMPOSER_OPTS="${3:-}"
+
+# If no project dir specified, extract from package name
+if [ -z "$PROJECT_DIR" ]; then
+  PROJECT_DIR=$(echo "$DRUPAL_PACKAGE" | sed 's/.*\///' | sed 's/-project$//')
+fi
+
+echo "========================================="
+echo "Downloading Drupal package: $DRUPAL_PACKAGE"
+echo "Target directory: $PROJECT_DIR"
+echo "========================================="
+
+# Check if data directory exists, create if needed
+if [ ! -d "data" ]; then
+  echo "Creating data directory..."
+  mkdir -p data
+fi
+
+# Handle stability settings from environment
+if [ -n "$DEMO_STABILITY" ]; then
+  echo "Setting minimum-stability to: $DEMO_STABILITY"
+  # Create a temporary composer config file if it doesn't exist
+  if [ ! -f "composer-project-config.json" ]; then
+    echo '{}' > composer-project-config.json
+  fi
+fi
+
+# Build composer command
+COMPOSER_CMD="$COMPOSER_BIN create-project $DRUPAL_PACKAGE $PROJECT_DIR --no-interaction"
+
+# Add stability option if specified
+if [ -n "$DEMO_STABILITY" ]; then
+  case "$DEMO_STABILITY" in
+    dev|alpha|beta|RC|stable)
+      COMPOSER_CMD="$COMPOSER_CMD --stability=$DEMO_STABILITY"
+      ;;
+    *)
+      echo "Warning: Unknown stability '$DEMO_STABILITY', ignoring"
+      ;;
+  esac
+fi
+
+# Add any additional options
+if [ -n "$COMPOSER_OPTS" ]; then
+  COMPOSER_CMD="$COMPOSER_CMD $COMPOSER_OPTS"
+fi
+
+# Run composer create-project
+echo "Running: $COMPOSER_CMD"
+if $COMPOSER_CMD 2>&1 | tee -a data/download.log; then
+  echo "✅ Download completed successfully"
+else
+  echo "❌ Download failed - check data/download.log"
+  exit 1
+fi
+
+# Move files to current directory if project dir is different
+if [ "$PROJECT_DIR" != "." ] && [ -d "$PROJECT_DIR" ]; then
+  echo "Moving files from $PROJECT_DIR to current directory..."
+  
+  for item in "$PROJECT_DIR"/*; do
+    [ -e "$item" ] || continue
+    basename_item=$(basename "$item")
+    if [ -e "$basename_item" ]; then
+      echo "Merging: $basename_item"
+      if [ -d "$item" ] && [ -d "$basename_item" ]; then
+        cp -r "$item"/* "$basename_item"/ 2>/dev/null || true
+        cp -r "$item"/.[^.]* "$basename_item"/ 2>/dev/null || true
+      else
+        rm -rf "$basename_item"
+        mv "$item" ./
+      fi
+    else
+      mv "$item" ./
+    fi
+  done
+  
+  # Move hidden files
+  for item in "$PROJECT_DIR"/.[^.]*; do
+    [ -e "$item" ] || continue
+    basename_item=$(basename "$item")
+    if [ -e "$basename_item" ]; then
+      rm -rf "$basename_item"
+    fi
+    mv "$item" ./
+  done
+  
+  # Remove empty directory
+  if rmdir "$PROJECT_DIR" 2>/dev/null; then
+    echo "Cleaned up $PROJECT_DIR directory"
+  else
+    echo "Warning: $PROJECT_DIR not empty, manual cleanup may be needed"
+  fi
+fi
+
+# Run composer install to ensure dependencies
+echo "Running composer install..."
+$COMPOSER_BIN install 2>&1 | tee -a data/download.log
+
+echo "✅ Download step complete"
