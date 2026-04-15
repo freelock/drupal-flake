@@ -22,6 +22,8 @@
           # Add nixpkgs-php74 for PHP 7.4 support
           pkgs-php74 = import inputs.nixpkgs-php74 { inherit system; };
 
+          inherit (builtins) match;
+
           # Load local extensions if available
           localExtensions =
             if builtins.pathExists ./nix/local-extensions.nix then
@@ -42,7 +44,7 @@
               envFileStr = builtins.readFile (toString ./.env);
               envFile = builtins.tryEval (if builtins.pathExists ./.env then
                 builtins.listToAttrs (builtins.map (line:
-                  let pair = builtins.match "([^=]+)=(.*)" line;
+                  let pair = match "([^=]+)=(.*)" line;
                   in if pair == null then
                     null
                   else {
@@ -67,7 +69,6 @@
           port = getEnvWithDefault "PORT" "8088";
           phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
           # Get the appropriate package set based on PHP version
-          phpPkgs = if phpVersion == "php74" then pkgs-php74 else pkgs;
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
           phpTimeout = lib.strings.toInt (getEnvWithDefault "PHP_TIMEOUT" "60");
           maxRam = getEnvWithDefault "MAX_RAM" "512M";
@@ -264,7 +265,7 @@
             };
 
         in {
-          process-compose."default" = { config, ... }:
+          process-compose."default" = { ... }:
             baseConfig // {
               # Override process-compose CLI options
               cli.options = {
@@ -283,7 +284,7 @@
             };
 
           # Detached target - same as default but runs in background
-          process-compose."detached" = { config, ... }:
+          process-compose."detached" = { ... }:
             baseConfig // {
               # Override process-compose CLI options
               cli.options = {
@@ -436,7 +437,7 @@
           '';
 
           # Static demo process-compose (the original functionality) 
-          process-compose."demo-static-internal" = { config, ... }:
+          process-compose."demo-static-internal" = { ... }:
             lib.recursiveUpdate baseConfig {
               # Override process-compose CLI options
               cli.options = {
@@ -478,7 +479,7 @@
             };
 
           # Config target to install drupal from config
-          process-compose."config" = { config, ... }:
+          process-compose."config" = { ... }:
             lib.recursiveUpdate baseConfig {
               # Override process-compose CLI options
               cli.options = {
@@ -871,10 +872,104 @@
               export SIMPLETEST_BASE_URL="http://${domain}:${port}"
               export SIMPLETEST_DB="mysql://drupal@localhost/drupal?unix_socket=$PWD/${dbSocket}"
 
+              if [ -z "''${IN_DRUPAL_FLAKE_TEST_SHELL:-}" ]; then
+                node() {
+                  echo "node is not available in the default dev shell. Use 'nix develop .#test'."
+                  return 127
+                }
+              fi
+
               # Additional shell hook configuration from local extensions
               ${localExtensions.extraShellHook or ""}
 
               echo "Entering development environment for ${projectName}"
+              echo "Use '?' to see the commands provided in this flake."
+            '';
+          };
+
+          # Test shell for Puppeteer-based tooling (node + browser detection)
+          devShells.test = pkgs.mkShellNoCC {
+            inputsFrom =
+              [ config.process-compose."default".services.outputs.devShell ];
+            nativeBuildInputs = [ pkgs.nodejs_20 ];
+            DRUSH_OPTIONS_URI = "http://${domain}:${port}";
+            PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "1";
+
+            shellHook = ''
+              export PROJECT_ROOT="$PWD"
+              export PROJECT_ROOT_REL="${projectRoot}"
+              export PROJECT_NAME="${projectName}"
+              export PATH="$PWD/vendor/bin:$PATH"
+              export IN_DRUPAL_FLAKE_TEST_SHELL=1
+              export DB_SOCKET="$PWD/${dbSocket}"
+              export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
+              export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"  # Backward compatibility
+              export PC_STATUS_FILE="/tmp/pc-running-${projectName}"
+
+              # Disable TUI in CI environments using process-compose's built-in env var
+              if [ -n "''${CI:-}" ] || [ -n "''${GITLAB_CI:-}" ] || [ -n "''${GITHUB_ACTIONS:-}" ]; then
+                export PC_DISABLE_TUI=1
+              fi
+
+              # PHPUnit environment variables
+              export DOMAIN="${domain}"
+              export PORT="${port}"
+              export DOCROOT="${docroot}"
+              export SIMPLETEST_BASE_URL="http://${domain}:${port}"
+              export SIMPLETEST_DB="mysql://drupal@localhost/drupal?unix_socket=$PWD/${dbSocket}"
+
+              # Puppeteer: prefer system Chrome/Chromium
+              export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=1
+
+              if [ -z "''${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
+                BROWSER_PATH=""
+                if [ "$(uname)" = "Darwin" ]; then
+                  for candidate in \
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+                    "/Applications/Chromium.app/Contents/MacOS/Chromium"; do
+                    if [ -x "$candidate" ]; then
+                      BROWSER_PATH="$candidate"
+                      break
+                    fi
+                  done
+                elif [ -n "''${WSL_DISTRO_NAME:-}" ] || grep -qi "microsoft" /proc/version 2>/dev/null; then
+                  for candidate in \
+                    "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" \
+                    "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe" \
+                    "/mnt/c/Program Files/Chromium/Application/chromium.exe" \
+                    "/mnt/c/Program Files (x86)/Chromium/Application/chromium.exe"; do
+                    if [ -x "$candidate" ]; then
+                      BROWSER_PATH="$candidate"
+                      break
+                    fi
+                  done
+                else
+                  for candidate in \
+                    "$(command -v google-chrome-stable 2>/dev/null)" \
+                    "$(command -v chromium-browser 2>/dev/null)" \
+                    "$(command -v chromium 2>/dev/null)" \
+                    "/usr/bin/google-chrome-stable" \
+                    "/usr/bin/chromium-browser" \
+                    "/usr/bin/chromium" \
+                    "/snap/bin/chromium"; do
+                    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+                      BROWSER_PATH="$candidate"
+                      break
+                    fi
+                  done
+                fi
+
+                if [ -n "$BROWSER_PATH" ]; then
+                  export PUPPETEER_EXECUTABLE_PATH="$BROWSER_PATH"
+                else
+                  echo "⚠️  No system Chrome/Chromium found. Install Chrome or Chromium and set PUPPETEER_EXECUTABLE_PATH." 
+                fi
+              fi
+
+              # Additional shell hook configuration from local extensions
+              ${localExtensions.extraShellHook or ""}
+
+              echo "Entering test environment for ${projectName}"
               echo "Use '?' to see the commands provided in this flake."
             '';
           };

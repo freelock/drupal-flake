@@ -2,17 +2,8 @@
 let
   phpVersion = config.phpVersion;
   php = (pkgs.${phpVersion}.buildEnv {
-    extensions = { enabled, all }: enabled ++ (with all; [
-      curl
-      gd
-      intl
-      pdo_mysql
-      soap
-      xsl
-      xdebug
-      zip
-    ]);
-
+    extensions = { enabled, all }:
+      enabled ++ (with all; [ curl gd intl pdo_mysql soap xsl xdebug zip ]);
 
     extraConfig = ''
       memory_limit = ${config.maxRam}
@@ -41,8 +32,7 @@ let
   drupal-install = pkgs.writeScriptBin "drupal-install"
     (builtins.readFile ./bin/drupal-install);
 
-in
-{
+in {
   options = {
     package = lib.mkPackageOption pkgs "init" { };
     projectName = lib.mkOption {
@@ -84,7 +74,8 @@ in
     customProjectName = lib.mkOption {
       type = lib.types.str;
       default = "";
-      description = "Custom project name to use (if provided, will create .env file)";
+      description =
+        "Custom project name to use (if provided, will create .env file)";
     };
     maxRam = lib.mkOption {
       type = lib.types.str;
@@ -130,8 +121,8 @@ in
         echo ""
         echo "Step 1: Downloading Drupal package..."
         drupal-download "$DRUPAL_PKG" "" "$COMPOSER_OPTS" 2>&1 | tee -a data/install.log
-        
-        if [ $? -ne 0 ]; then
+
+        if [ ''${PIPESTATUS[0]} -ne 0 ]; then
           echo "❌ Download step failed! Check data/install.log"
           exit 1
         fi
@@ -142,8 +133,8 @@ in
           echo ""
           echo "Step 2: Installing site template recipe..."
           drupal-recipe "$RECIPE" 2>&1 | tee -a data/install.log
-          
-          if [ $? -ne 0 ]; then
+
+          if [ ''${PIPESTATUS[0]} -ne 0 ]; then
             echo "⚠️  Recipe installation had issues, will try to continue..."
           fi
         fi
@@ -152,8 +143,8 @@ in
         echo ""
         echo "Step 3: Installing Drupal..."
         drupal-install "$RECIPE" "-y" 2>&1 | tee -a data/install.log
-        
-        if [ $? -ne 0 ]; then
+
+        if [ ''${PIPESTATUS[0]} -ne 0 ]; then
           echo "❌ Installation failed! Check data/install.log"
           # Try to identify the issue
           if grep -q "Module.*not found" data/install.log 2>/dev/null; then
