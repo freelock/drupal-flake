@@ -3,7 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixpkgs-php74.url = "github:NixOS/nixpkgs/6e3a86f2f73a466656a401302d3ece26fba401d9";
+    nixpkgs-php74.url =
+      "github:NixOS/nixpkgs/6e3a86f2f73a466656a401302d3ece26fba401d9";
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
@@ -12,28 +13,24 @@
 
   outputs = inputs:
 
-    inputs.flake-parts.lib.mkFlake {
-      inherit inputs;
-    } {
+    inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
-      imports = [
-        inputs.process-compose-flake.flakeModule
-      ];
+      imports = [ inputs.process-compose-flake.flakeModule ];
 
-      perSystem = { self', pkgs, config, lib, system, ...}:
+      perSystem = { self', pkgs, config, lib, system, ... }:
         let
           # Add nixpkgs-php74 for PHP 7.4 support
           pkgs-php74 = import inputs.nixpkgs-php74 { inherit system; };
 
           # Load local extensions if available
           localExtensions =
-            if builtins.pathExists ./nix/local-extensions.nix
-            then import ./nix/local-extensions.nix { inherit pkgs lib system; }
+            if builtins.pathExists ./nix/local-extensions.nix then
+              import ./nix/local-extensions.nix { inherit pkgs lib system; }
             else {
-              extraPhpExtensions = [];
-              extraNixPackages = [];
-              customTools = [];
-              extraPaths = [];
+              extraPhpExtensions = [ ];
+              extraNixPackages = [ ];
+              customTools = [ ];
+              extraPaths = [ ];
               extraPhpConfig = "";
               extraShellHook = "";
             };
@@ -86,7 +83,8 @@
                 (builtins.filter (x: x != "") (lib.splitString "/" docroot)))
                 - 1));
           # Use relative path, but php-fpm.nix should handle the absolute path conversion
-          dbSocket = getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
+          dbSocket =
+            getEnvWithDefault "DB_SOCKET" "data/${projectName}-db/mysql.sock";
 
           inherit (inputs.services-flake.lib) multiService;
 
@@ -160,9 +158,9 @@
               # TODO: This currently should have ${PWD}/ prefixing it, so this is currently wrong.
               dbSocket = dbSocket;
               # Pass extra PHP extensions from local extensions
-              extraPhpExtensions = localExtensions.extraPhpExtensions or [];
+              extraPhpExtensions = localExtensions.extraPhpExtensions or [ ];
               # Pass extra paths from local extensions
-              extraPaths = localExtensions.extraPaths or [];
+              extraPaths = localExtensions.extraPaths or [ ];
               # Pass extra PHP configuration from local extensions
               extraPhpConfig = localExtensions.extraPhpConfig or "";
               # Set PHP timeout and memory limit
@@ -176,63 +174,64 @@
               port = lib.strings.toInt port;
               # Override domain:
               httpConfig = ''
-                server {
-                  listen ${port};
-                  server_name ${domain} localhost 127.0.0.1;
-                  root ${docroot};
-                  index index.php index.html index.htm;
+                                server {
+                                  listen ${port};
+                                  server_name ${domain} localhost 127.0.0.1;
+                                  root ${docroot};
+                                  index index.php index.html index.htm;
 
-                  # Allow large file uploads (must match PHP settings)
-                  client_max_body_size 100M;
+                                  # Allow large file uploads (must match PHP settings)
+                                  client_max_body_size 100M;
 
-                  # logging
-                  access_log data/${projectName}-nginx/${projectName}-access.log;
-                  error_log data/${projectName}-nginx/${projectName}-error.log;
+                                  # logging
+                                  access_log data/${projectName}-nginx/${projectName}-access.log;
+                                  error_log data/${projectName}-nginx/${projectName}-error.log;
 
-                  location / {
-                    try_files $uri $uri/ /index.php?$query_string;
-                  }
+                                  location / {
+                                    try_files $uri $uri/ /index.php?$query_string;
+                                  }
 
-                  location ~ \.php$ {
-                    fastcgi_split_path_info ^(.+\.php)(/.+)$;
-                    fastcgi_pass unix:/tmp/${projectName}-php.sock;
-                    fastcgi_index index.php;
-                    include ${pkgs.nginx}/conf/fastcgi_params;
+                                  location ~ \.php$ {
+                                    fastcgi_split_path_info ^(.+\.php)(/.+)$;
+                                    fastcgi_pass unix:/tmp/${projectName}-php.sock;
+                                    fastcgi_index index.php;
+                                    include ${pkgs.nginx}/conf/fastcgi_params;
 
-                    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-                    fastcgi_param PATH_INFO $fastcgi_path_info;
-                    fastcgi_param QUERY_STRING $query_string;
-                    fastcgi_intercept_errors on;
-		                # Set read timeout based on PHP timeout + buffer
-                    fastcgi_read_timeout ${toString (phpTimeout + 30)};
-		                # Drupal sends big headers in dev mode, need to increase buffer size
-                    fastcgi_buffer_size 128k;
-                    fastcgi_buffers 4 256k;
-                    fastcgi_busy_buffers_size 256k;
-                  }
+                                    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                                    fastcgi_param PATH_INFO $fastcgi_path_info;
+                                    fastcgi_param QUERY_STRING $query_string;
+                                    fastcgi_intercept_errors on;
+                		                # Set read timeout based on PHP timeout + buffer
+                                    fastcgi_read_timeout ${
+                                      toString (phpTimeout + 30)
+                                    };
+                		                # Drupal sends big headers in dev mode, need to increase buffer size
+                                    fastcgi_buffer_size 128k;
+                                    fastcgi_buffers 4 256k;
+                                    fastcgi_busy_buffers_size 256k;
+                                  }
 
-                  # Deny access to . files
-                  location ~ /\. {
-                    deny all;
-                  }
+                                  # Deny access to . files
+                                  location ~ /\. {
+                                    deny all;
+                                  }
 
-                  # Allow fpm ping and status
-                  location ~ ^/(fpm-status|fpm-ping)$ {
-                    access_log off;
-                    allow 127.0.0.1;
-                    deny all;
-                    fastcgi_pass unix:data/php/php-fpm.sock;
-                    include ${pkgs.nginx}/conf/fastcgi_params;
-                  }
+                                  # Allow fpm ping and status
+                                  location ~ ^/(fpm-status|fpm-ping)$ {
+                                    access_log off;
+                                    allow 127.0.0.1;
+                                    deny all;
+                                    fastcgi_pass unix:data/php/php-fpm.sock;
+                                    include ${pkgs.nginx}/conf/fastcgi_params;
+                                  }
 
-                }
+                                }
               '';
             };
 
-
             #services.caddy."${projectName}" = {
             #  enable = true;
-              # Override domain:
+            # Override domain:
             #  settings.domain = domain;
             #};
             services.nix-settings."nix-settings" = {
@@ -264,34 +263,36 @@
               };
             };
 
-      in
-      {
-        process-compose."default" = { config, ...}: baseConfig // {
-          # Override process-compose CLI options
-          cli.options = {
-            # Enable REST server on port 8080 instead of disabling it
-            no-server = false;
-            # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
-            use-uds = true;
-          };
+        in {
+          process-compose."default" = { config, ... }:
+            baseConfig // {
+              # Override process-compose CLI options
+              cli.options = {
+                # Enable REST server on port 8080 instead of disabling it
+                no-server = false;
+                # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
+                use-uds = true;
+              };
 
-          # Create status file when process-compose starts
-          settings.processes.pc-status-start = {
-            command = "echo '${projectName}' > /tmp/pc-running-${projectName}";
-            availability.restart = "no";
-          };
-        };
+              # Create status file when process-compose starts
+              settings.processes.pc-status-start = {
+                command =
+                  "echo '${projectName}' > /tmp/pc-running-${projectName}";
+                availability.restart = "no";
+              };
+            };
 
-        # Detached target - same as default but runs in background
-        process-compose."detached" = { config, ...}: baseConfig // {
-          # Override process-compose CLI options
-          cli.options = {
-            # Enable REST server on port 8080 instead of disabling it
-            no-server = false;
-            # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
-            use-uds = true;
-          };
-        };
+          # Detached target - same as default but runs in background
+          process-compose."detached" = { config, ... }:
+            baseConfig // {
+              # Override process-compose CLI options
+              cli.options = {
+                # Enable REST server on port 8080 instead of disabling it
+                no-server = false;
+                # Use Unix domain socket (path set via PC_SOCKET_PATH env var)
+                use-uds = true;
+              };
+            };
 
           # Demo package that wraps process-compose demo with argument parsing
           packages.demo = pkgs.writeScriptBin "demo" ''
