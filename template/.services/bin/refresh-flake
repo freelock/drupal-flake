@@ -15,7 +15,13 @@ fi
 pushd "$PROJECT_ROOT" || exit 1
 # Remove the files in this template:
 echo "Removing old files..."
-rm -rf flake.nix flake.lock .envrc .env.example .services
+rm -rf flake.nix flake.lock .envrc .env.example .services local-extensions.nix
+
+# Remove only the specific drupal-flake skills we added, preserving user skills
+rm -rf .claude/skills/drupal-flake-process
+rm -rf .claude/skills/drupal-flake-test
+rm -rf .claude/skills/drupal-flake-install
+rm -rf .claude/skills/drupal-flake
 
 # Initialize a new flake using the drupal-flake template
 FLAKE_SOURCE=${1:-"git+https://git.drupalcode.org/project/drupal_flake"}
