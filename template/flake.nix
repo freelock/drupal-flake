@@ -812,7 +812,7 @@
                 # Just check if socket file exists (faster than socket test)
                 [ -e "''${PC_SOCKET_PATH}" ] && echo "💧❄️ ''${PROJECT_NAME}" || exit 1
               '')
-              (writeScriptBin "?" ''
+              (writeScriptBin "flake-help" ''
                 #!${pkgs.bash}/bin/bash
                 echo -e "\n\033[1;34m${projectName} Development Commands:\033[0m"
                 echo -e "\033[1;32mnix run\033[0m                 Start the development environment"
@@ -838,10 +838,18 @@
                 echo -e "\033[1;32mphpunit-setup\033[0m           Create phpunit.xml configuration for testing"
                 echo -e "\033[1;32mphpunit-module <name>\033[0m    Run PHPUnit tests for a specific module"
                 echo -e "\033[1;32mphpunit-custom\033[0m          Run PHPUnit tests for all custom modules and themes"
-                echo -e "\033[1;32m?\033[0m                       Show this help message"
+                echo -e "\033[1;32m?, ??, flake-help\033[0m       Show this help message (use '??' or 'flake-help' if '?' conflicts with other tools)"
                 echo ""
                 echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
                 echo -e "Socket: \033[1;33m''${PC_SOCKET_PATH:-/tmp/process-compose-${projectName}.sock}\033[0m"
+              '')
+              (writeScriptBin "?" ''
+                #!${pkgs.bash}/bin/bash
+                exec flake-help
+              '')
+              (writeScriptBin "??" ''
+                #!${pkgs.bash}/bin/bash
+                exec flake-help
               '')
               # Add zip for composer to avoid warnings about corrupted archives
               unzip
@@ -883,7 +891,7 @@
               ${localExtensions.extraShellHook or ""}
 
               echo "Entering development environment for ${projectName}"
-              echo "Use '?' to see the commands provided in this flake."
+              echo "Use '?', '??', or 'flake-help' to see the commands provided in this flake."
             '';
           };
 
@@ -970,7 +978,7 @@
               ${localExtensions.extraShellHook or ""}
 
               echo "Entering test environment for ${projectName}"
-              echo "Use '?' to see the commands provided in this flake."
+              echo "Use '?', '??', or 'flake-help' to see the commands provided in this flake."
             '';
           };
         };
