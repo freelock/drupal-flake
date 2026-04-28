@@ -1,6 +1,6 @@
 ---
 name: drupal-flake-test
-description: Set up and run tests on Drupal sites. Configures PHPUnit, browser testing with Puppeteer/Playwright, and CI/CD pipelines. Requires drupal-flake-process skill for environment management.
+description: Set up and run tests on Drupal sites. Configures PHPUnit, Playwright browser testing (cross-platform, no browser download), and CI/CD pipelines. Requires drupal-flake-process skill for environment management.
 compatibility: opencode
 metadata:
   framework: Drupal
@@ -64,58 +64,87 @@ xphpunit --configuration phpunit.custom.xml
 
 ## Browser Testing
 
-### Puppeteer (Recommended)
+Both Puppeteer and Playwright are supported in `nix develop .#test`. The test shell auto-configures browsers — never run `npx playwright install` or manually download browsers.
 
 **Enter test shell:**
 ```bash
 nix develop .#test
 ```
 
-**What's available:**
+**What the test shell provides:**
 - Node.js 20
-- `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=1` (uses system Chrome)
-- Auto-detected `PUPPETEER_EXECUTABLE_PATH`
+- `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true`
+- `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=1`
+- Auto-detected browser (see table below)
 
-**Cross-platform Chrome detection:**
-| Platform | Checked paths |
-|----------|---------------|
-| Linux | `google-chrome-stable`, `chromium-browser`, `chromium`, `/snap/bin/chromium` |
-| macOS | `/Applications/Google Chrome.app`, `/Applications/Chromium.app` |
-| WSL | `/mnt/c/Program Files/Google/Chrome/Application/chrome.exe` |
+**Cross-platform browser detection (both Puppeteer and Playwright):**
+| Platform | Browser source |
+|----------|----------------|
+| macOS | Chrome.app / Chromium.app / Edge.app in `/Applications` |
+| WSL | Windows Chrome at `/mnt/c/Program Files/Google/Chrome/…` |
+| Linux (chromium in PATH) | Uses that Nix-patched binary directly |
+| Linux (no system browser) | Falls back to `pkgs.playwright-driver.browsers` from nixpkgs |
+
+**Override the detected browser:**
+```bash
+export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="/path/to/chrome"
+# or
+export PLAYWRIGHT_BROWSERS_PATH="/path/to/playwright-browsers"
+```
+
+### Playwright (Recommended for new tests)
 
 **Quick start:**
 ```bash
 nix develop .#test
+playwright-setup          # creates playwright.config.cjs + example test
+npm install --save-dev @playwright/test
+npx playwright test
+npx playwright show-report data/playwright-report
+```
+
+`playwright-setup` creates:
+- `playwright.config.cjs` — configured for Drupal (baseURL from `SIMPLETEST_BASE_URL`, sequential workers, traces/screenshots on failure)
+- `tests/playwright/example.spec.js` — front page, login page, and admin login tests
+- `data/playwright-report/` and `data/playwright-results/` output directories
+
+**Example test:**
+```javascript
+const { test, expect } = require('@playwright/test');
+
+test('admin login', async ({ page }) => {
+  await page.goto('/user/login');
+  await page.fill('#edit-name', 'admin');
+  await page.fill('#edit-pass', 'admin');
+  await page.click('#edit-submit');
+  await expect(page).toHaveURL(/\/user\/\d+/);
+});
+```
+
+**Version pinning:** `pkgs.playwright-driver.browsers` from nixpkgs may not match your `@playwright/test` npm version. For exact alignment use one of these community flakes:
+- [`halfwhey/nix-playwright-nightly`](https://github.com/halfwhey/nix-playwright-nightly) — Linux + macOS (arm64), Cachix binary cache, nightly CI builds
+- [`pietdevries94/playwright-web-flake`](https://github.com/pietdevries94/playwright-web-flake) — Linux, version-tagged releases (`nix shell github:pietdevries94/playwright-web-flake/1.50.0#playwright-test`)
+
+### Puppeteer
+
+```bash
+nix develop .#test
 npm init -y
-npm install puppeteer vitest
+npm install puppeteer
 
-# Create tests/example.test.js
 cat > tests/example.test.js << 'EOF'
-import { test, expect } from 'vitest';
-import puppeteer from 'puppeteer';
+const puppeteer = require('puppeteer');
 
-test('homepage loads', async () => {
+(async () => {
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
-  await page.goto('http://localhost:8080');
-  expect(await page.title()).toContain('Drupal');
+  await page.goto(process.env.SIMPLETEST_BASE_URL || 'http://localhost:8088');
+  console.log(await page.title());
   await browser.close();
-});
+})();
 EOF
-
-# Add to package.json and run
-npm pkg set scripts.test="vitest"
-npm test
+node tests/example.test.js
 ```
-
-**Manual Chrome path:**
-```bash
-export PUPPETEER_EXECUTABLE_PATH="/path/to/chrome"
-```
-
-### Why NOT Playwright?
-
-Nix purity conflicts with Playwright's browser downloads. It tries to download browsers to the store (read-only). **Use Puppeteer instead** - it uses system browsers with `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=1`.
 
 ### Browser Test Examples
 
@@ -164,11 +193,11 @@ jobs:
       - name: Run PHPUnit
         run: nix develop -c xphpunit
         
-      - name: Browser tests
+      - name: Browser tests (Playwright)
         run: |
           nix develop .#test -c bash -c "
             npm ci
-            npm test
+            npx playwright test
           "
 ```
 
@@ -183,7 +212,7 @@ test:
     - sleep 30
   script:
     - nix develop -c xphpunit
-    - nix develop .#test -c npm test
+    - nix develop .#test -c bash -c "npm ci && npx playwright test"
 ```
 
 ## Test Database Management

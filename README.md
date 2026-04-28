@@ -133,6 +133,62 @@ The `nix/` directory is excluded from `refresh-flake` updates, so your customiza
 - `setup-starship-prompt` - Configure starship prompt to show process-compose status
 - `?` - Show help message with all available commands
 
+### Testing Commands
+
+**PHPUnit** (available in the default dev shell):
+- `phpunit-setup` - Create `phpunit.xml` for Drupal unit/kernel/functional tests
+- `phpunit-module <name>` - Run PHPUnit tests for a specific module
+- `phpunit-custom` - Run PHPUnit tests for all custom modules and themes
+
+**Playwright browser testing** requires entering the test shell first:
+
+```bash
+nix develop .#test
+playwright-setup          # generate playwright.config.cjs and example test
+npm install --save-dev @playwright/test
+npx playwright test
+npx playwright show-report data/playwright-report
+```
+
+The test shell (`nix develop .#test`) automatically configures the browser:
+
+| Platform | Browser source |
+|----------|----------------|
+| macOS | Detects Chrome.app / Chromium.app / Edge.app |
+| WSL | Detects Windows Chrome at `/mnt/c/…` |
+| NixOS / Linux (chromium in PATH) | Uses that Nix-patched binary |
+| NixOS / Linux (no system browser) | Falls back to `pkgs.playwright-driver.browsers` |
+
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is always set, so Playwright never tries to
+download its own browsers. Override the detected browser by setting
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` or `PLAYWRIGHT_BROWSERS_PATH` before entering the shell.
+
+#### Playwright version pinning
+
+`pkgs.playwright-driver.browsers` from nixpkgs may not match the exact version of
+`@playwright/test` installed in your project. If you need exact version alignment,
+two community flakes wrap the right browsers for each npm release:
+
+- **[halfwhey/nix-playwright-nightly](https://github.com/halfwhey/nix-playwright-nightly)**
+  — supports x86_64-linux, aarch64-linux, and macOS (arm64); nightly CI builds; pre-built
+  browsers pushed to Cachix so you don't build from source:
+
+  ```nix
+  inputs.playwright.url = "github:halfwhey/nix-playwright-nightly";
+  # then in nativeBuildInputs:
+  playwright.packages.${system}.playwright-node
+  ```
+
+- **[pietdevries94/playwright-web-flake](https://github.com/pietdevries94/playwright-web-flake)**
+  — version-tagged releases for Linux; select any pinned version:
+
+  ```bash
+  nix shell github:pietdevries94/playwright-web-flake/1.50.0#playwright-test
+  ```
+
+Both expose `PLAYWRIGHT_BROWSERS_PATH` automatically on their wrapped binaries, so no
+additional env-var setup is needed when using them.
+
 ### Starship Prompt Integration
 
 If you use [Starship](https://starship.rs/) for your shell prompt, run `setup-starship-prompt` to configure a status indicator that shows:

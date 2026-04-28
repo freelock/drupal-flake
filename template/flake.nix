@@ -681,6 +681,8 @@
                 (builtins.readFile ./.services/bin/phpunit-module))
               (writeScriptBin "phpunit-custom"
                 (builtins.readFile ./.services/bin/phpunit-custom))
+              (writeScriptBin "playwright-setup"
+                (builtins.readFile ./.services/bin/playwright-setup))
               (writeScriptBin "xdrush" ''
                 #!${pkgs.bash}/bin/bash
                 # Create logs directory if it doesn't exist
@@ -838,6 +840,7 @@
                 echo -e "\033[1;32mphpunit-setup\033[0m           Create phpunit.xml configuration for testing"
                 echo -e "\033[1;32mphpunit-module <name>\033[0m    Run PHPUnit tests for a specific module"
                 echo -e "\033[1;32mphpunit-custom\033[0m          Run PHPUnit tests for all custom modules and themes"
+                echo -e "\033[1;32mplaywright-setup\033[0m        Configure Playwright for browser testing (use in 'nix develop .#test')"
                 echo -e "\033[1;32m?, ??, flake-help\033[0m       Show this help message (use '??' or 'flake-help' if '?' conflicts with other tools)"
                 echo ""
                 echo -e "Site URL: \033[1;33mhttp://${domain}:${port}\033[0m"
@@ -895,13 +898,19 @@
             '';
           };
 
-          # Test shell for Puppeteer-based tooling (node + browser detection)
+          # Test shell for Puppeteer and Playwright browser testing (node + browser detection)
           devShells.test = pkgs.mkShellNoCC {
             inputsFrom =
               [ config.process-compose."default".services.outputs.devShell ];
-            nativeBuildInputs = [ pkgs.nodejs_20 ];
+            nativeBuildInputs = [ pkgs.nodejs_20 ]
+              # playwright-driver.browsers provides NixOS-patched Chromium/Firefox/WebKit
+              # On NixOS this is required; on other Linux it's a fallback if no system browser found
+              ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.playwright-driver.browsers ];
             DRUSH_OPTIONS_URI = "http://${domain}:${port}";
             PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "1";
+            # Prevent Playwright from downloading its own browser copies
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+            PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
 
             shellHook = ''
               export PROJECT_ROOT="$PWD"
@@ -970,8 +979,59 @@
                 if [ -n "$BROWSER_PATH" ]; then
                   export PUPPETEER_EXECUTABLE_PATH="$BROWSER_PATH"
                 else
-                  echo "⚠️  No system Chrome/Chromium found. Install Chrome or Chromium and set PUPPETEER_EXECUTABLE_PATH." 
+                  echo "⚠️  No system Chrome/Chromium found. Install Chrome or Chromium and set PUPPETEER_EXECUTABLE_PATH."
                 fi
+              fi
+
+              # Playwright: prefer existing system browser; always set BROWSERS_PATH for tools (ffmpeg, etc.)
+              # Override by setting PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH or PLAYWRIGHT_BROWSERS_PATH before entering shell
+              if [ -z "''${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ] && [ -z "''${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+                if [ "$(uname)" = "Darwin" ]; then
+                  for candidate in \
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+                    "/Applications/Chromium.app/Contents/MacOS/Chromium" \
+                    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"; do
+                    if [ -x "$candidate" ]; then
+                      export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$candidate"
+                      break
+                    fi
+                  done
+                elif [ -n "''${WSL_DISTRO_NAME:-}" ] || grep -qi "microsoft" /proc/version 2>/dev/null; then
+                  for candidate in \
+                    "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" \
+                    "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"; do
+                    if [ -x "$candidate" ]; then
+                      export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$candidate"
+                      break
+                    fi
+                  done
+                else
+                  # Linux: try system Chrome/Chromium first (works on NixOS if chromium is in PATH)
+                  for candidate in \
+                    "$(command -v google-chrome-stable 2>/dev/null)" \
+                    "$(command -v google-chrome 2>/dev/null)" \
+                    "$(command -v chromium-browser 2>/dev/null)" \
+                    "$(command -v chromium 2>/dev/null)"; do
+                    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+                      export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$candidate"
+                      break
+                    fi
+                  done
+                fi
+              fi
+              # Always set BROWSERS_PATH for Nix-provided tools (ffmpeg, etc.) unless already set
+              if [ -z "''${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+                export PLAYWRIGHT_BROWSERS_PATH="${lib.optionalString pkgs.stdenv.isLinux "${pkgs.playwright-driver.browsers}"}"
+              fi
+              if [ -n "''${PLAYWRIGHT_BROWSERS_PATH:-}" ] && [ -n "''${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ]; then
+                echo "   Playwright browser:  ''${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}"
+                echo "   Playwright tools:    ''${PLAYWRIGHT_BROWSERS_PATH}"
+              elif [ -n "''${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+                echo "   Playwright browsers: ''${PLAYWRIGHT_BROWSERS_PATH}"
+              elif [ -n "''${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}" ]; then
+                echo "   Playwright browser:  ''${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}"
+              else
+                echo "⚠️  Playwright: no browser configured. Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH manually."
               fi
 
               # Additional shell hook configuration from local extensions
