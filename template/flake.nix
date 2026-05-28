@@ -893,8 +893,8 @@
               # Additional shell hook configuration from local extensions
               ${localExtensions.extraShellHook or ""}
 
-              echo "Entering development environment for ${projectName}"
-              echo "Use '?', '??', or 'flake-help' to see the commands provided in this flake."
+              >&2 echo "Entering development environment for ${projectName}"
+              >&2 echo "Use '?', '??', or 'flake-help' to see the commands provided in this flake."
             '';
           };
 
@@ -1037,8 +1037,8 @@
               # Additional shell hook configuration from local extensions
               ${localExtensions.extraShellHook or ""}
 
-              echo "Entering test environment for ${projectName}"
-              echo "Use '?', '??', or 'flake-help' to see the commands provided in this flake."
+              >&2 echo "Entering test environment for ${projectName}"
+              >&2 echo "Use '?', '??', or 'flake-help' to see the commands provided in this flake."
             '';
           };
         };
