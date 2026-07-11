@@ -41,7 +41,7 @@ in
     phpVersion = lib.mkOption {
       type = lib.types.str;
       default = "php83";
-      description = "PHP version to use (php74, php80, php81, php82, php83)";
+      description = "PHP version to use (php74, php80, php81, php82, php83, php84, php85)";
     };
     drupalPackage = lib.mkOption {
       type = lib.types.str;
@@ -58,7 +58,7 @@ in
     package = pkgs.writeScriptBin "config" ''
       #!${pkgs.bash}/bin/bash
       export PHP_MEMORY_LIMIT=-1
-      export PATH="${php}/bin:${config.php.packages.composer}/bin:$(pwd)/vendor/bin:$PATH"
+      export PATH="${php}/bin:${config.php.packages.composer}/bin:$(pwd)/vendor/bin:$(pwd)/bin:$PATH"
       # if [ ! -f "web/index.php" ]; then
         echo "Installing Drupal CMS..."
 

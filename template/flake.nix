@@ -871,7 +871,7 @@
               export PROJECT_ROOT="$PWD"
               export PROJECT_ROOT_REL="${projectRoot}"
               export PROJECT_NAME="${projectName}"
-              export PATH="$PWD/vendor/bin:$PATH"
+              export PATH="$PWD/vendor/bin:$PWD/bin:$PATH"
               export DB_SOCKET="$PWD/${dbSocket}"
               export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"
               export PROCESS_COMPOSE_SOCKET="$PC_SOCKET_PATH"  # Backward compatibility
@@ -922,7 +922,7 @@
               export PROJECT_ROOT="$PWD"
               export PROJECT_ROOT_REL="${projectRoot}"
               export PROJECT_NAME="${projectName}"
-              export PATH="$PWD/vendor/bin:$PATH"
+              export PATH="$PWD/vendor/bin:$PWD/bin:$PATH"
               export IN_DRUPAL_FLAKE_TEST_SHELL=1
               export DB_SOCKET="$PWD/${dbSocket}"
               export PC_SOCKET_PATH="/tmp/process-compose-${projectName}.sock"

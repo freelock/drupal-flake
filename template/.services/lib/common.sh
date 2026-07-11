@@ -8,13 +8,15 @@
 set -e
 
 # generate_port: Derive a deterministic HTTP port from a project name
-# Uses T9 phone keypad mapping on first 8 chars of name, adds 2
-# Capped at 65535 to stay within valid port range.
+# Uses T9 phone keypad mapping on first 3 chars, appends the last char's
+# T9 digit (when name > 3 chars), then adds 2000 to stay above common ports.
+# This keeps results well under 65535 and gives distinct ports for names
+# that share a prefix but differ in the last character (test1 vs test2).
 generate_port() {
   local name="$1"
   local digits=""
   local i char
-  for (( i=0; i<${#name} && i<8; i++ )); do
+  for (( i=0; i<${#name} && i<3; i++ )); do
     char="${name:$i:1}"
     case "$char" in
       [aAbBcC]) digits+="2" ;;
@@ -30,15 +32,27 @@ generate_port() {
       2|3|4|5|6|7|8|9) digits+="$char" ;;
     esac
   done
+  if [ ${#name} -gt 3 ]; then
+    char="${name: -1}"
+    case "$char" in
+      [aAbBcC]) digits+="2" ;;
+      [dDeEfF]) digits+="3" ;;
+      [gGhHiI]) digits+="4" ;;
+      [jJkKlL]) digits+="5" ;;
+      [mMnNoO]) digits+="6" ;;
+      [pPqQrRsS]) digits+="7" ;;
+      [tTuUvV]) digits+="8" ;;
+      [wWxXyYzZ]) digits+="9" ;;
+      0) digits+="0" ;;
+      1) digits+="1" ;;
+      2|3|4|5|6|7|8|9) digits+="$char" ;;
+    esac
+  fi
   if [ -z "$digits" ]; then
     echo 8080
     return
   fi
-  local port=$(( 10#$digits + 2 ))
-  if [ "$port" -gt 65535 ]; then
-    port=8080
-  fi
-  echo "$port"
+  echo $(( 10#$digits + 2000 ))
 }
 
 # write_env_from_example: Create .env from .env.example with filled values

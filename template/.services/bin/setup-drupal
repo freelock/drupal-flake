@@ -25,13 +25,13 @@ SITE_NAME="${3:-}"
 if [ -z "$DRUPAL_PACKAGE" ]; then
   echo "Select a starting package:"
   echo "  1) drupal/cms (Drupal CMS - recommended)"
-  echo "  2) drupal/core-recommended (Minimal Drupal core)"
+  echo "  2) drupal/recommended-project (Minimal Drupal core)"
   echo "  3) centarro/commerce-kickstart-project (Commerce Kickstart)"
   echo "  4) Other (enter custom package name)"
   read -p "Choice [1]: " choice
   case "${choice:-1}" in
     1|"") DRUPAL_PACKAGE="drupal/cms" ;;
-    2) DRUPAL_PACKAGE="drupal/core-recommended" ;;
+    2) DRUPAL_PACKAGE="drupal/recommended-project" ;;
     3) DRUPAL_PACKAGE="centarro/commerce-kickstart-project" ;;
     4)
       read -p "Enter composer package name: " DRUPAL_PACKAGE
@@ -86,14 +86,8 @@ echo ""
 # --- Generate port from site name ---
 PORT=$(generate_port "$SITE_NAME")
 echo "Generated port: $PORT"
-
-# --- Write .env from .env.example ---
-if [ ! -f ".env.example" ]; then
-  echo "Error: .env.example not found. Are you in a drupal-flake project root?"
-  exit 1
-fi
-
-write_env_from_example "$SITE_NAME" "$PHP_VERSION" "$PORT"
+read -p "Port [$PORT]: " PORT_INPUT
+PORT="${PORT_INPUT:-$PORT}"
 
 # --- Determine temp directory name for composer create-project ---
 TEMP_DIR=".setup-drupal-tmp-$$"
@@ -109,6 +103,14 @@ composer create-project "$DRUPAL_PACKAGE" "$TEMP_DIR" --no-interaction 2>&1 || {
   rm -rf "$TEMP_DIR" 2>/dev/null || true
   exit 1
 }
+
+# --- Write .env from .env.example ---
+if [ ! -f ".env.example" ]; then
+  echo "Error: .env.example not found. Are you in a drupal-flake project root?"
+  exit 1
+fi
+
+write_env_from_example "$SITE_NAME" "$PHP_VERSION" "$PORT"
 
 # --- Flatten subdirectory ---
 flatten_subdirectory "$TEMP_DIR"
@@ -156,8 +158,8 @@ echo "URL:          http://${SITE_NAME}.ddev.site:${PORT}"
 echo ""
 
 if [ -n "$DIRENV_DIR" ]; then
-  echo "📌 Direnv detected — .env changes are auto-tracked."
-  echo "   Run 'start-detached' to start the development environment."
+  echo "📌 Direnv detected — run 'direnv reload' to pick up new .env values."
+  echo "   Then run 'start-detached' to start the development environment."
 else
   echo "📌 Run 'exit' then 'nix develop' to pick up the new .env values."
   echo "   Then run 'start-detached' to start the development environment."
