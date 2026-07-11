@@ -11,7 +11,7 @@ metadata:
 
 ## Prerequisites (CRITICAL)
 
-**Git initialization is REQUIRED:**
+**Git initialization is REQUIRED before running setup-drupal:**
 ```bash
 git init
 cat > .gitignore << 'EOF'
@@ -23,30 +23,28 @@ vendor/
 node_modules/
 .env.local
 EOF
-git add flake.nix flake.lock .env .envrc .gitignore .services/
 ```
-⚠️ **Without git, MySQL socket files fail.**
+⚠️ **Without git, MySQL socket files fail. setup-drupal will stage .env in git for you.**
 
 ## Installation Methods
 
-### 1. start-demo (Recommended)
+### 1. setup-drupal (Recommended for new projects)
 ```bash
-# Interactive setup
+# Interactive setup (prompts for package, PHP, site name)
+nix develop
+setup-drupal
+```
+
+### 2. setup-settings (Add to existing projects)
+```bash
+# Generate a minimal settings.php without clobbering
+setup-settings [--site <sitename>] [--project-name <name>]
+```
+
+### 3. start-demo (Quick demo/integration test)
+```bash
 nix develop
 start-demo [package] [project-name] [--detached]
-```
-
-**Environment variables for customization:**
-```bash
-export DEMO_DRUPAL_PACKAGE="drupal/cms"  # or "drupalcommerce/commerce_kickstart"
-export DEMO_COMPOSER_OPTIONS="--stability=dev"
-export DEMO_RECIPE="recipes/byte"  # for CMS
-```
-
-### 2. Manual Composer
-```bash
-composer create-project drupal/recommended-project mysite
-cd mysite && nix flake init -t /path/to/drupal-flake
 ```
 
 ## Profile Selection Guide
@@ -54,7 +52,7 @@ cd mysite && nix flake init -t /path/to/drupal-flake
 | Profile | Package | Recipe | Use Case |
 |---------|---------|--------|----------|
 | **Drupal CMS** | `drupal/cms` | `recipes/byte` | Content management focus |
-| **Commerce Kickstart** | `drupalcommerce/commerce_kickstart` | None | E-commerce |
+| **Commerce Kickstart** | `centarro/commerce-kickstart-project` | None | E-commerce |
 | **Vanilla Core** | `drupal/recommended-project` | `standard` or `minimal` | Custom builds |
 
 ### Recipe Discovery
@@ -67,56 +65,52 @@ drush recipe:validate recipes/contrib/<name>
 ```
 
 ### Drupal 12 Specifics
-- Requires PHP 8.3+ (use `PHP_VERSION=php83` or `php84`)
+- Requires PHP 8.3+ (use `PHP_VERSION=php83`, `php84`, or `php85`)
 - Some contrib modules may need `--stability=dev`
 - Check core compatibility: `composer show drupal/core | grep versions`
 
 ## New Project Workflow
 
-### Step 1: Collect 4 Required Answers
-```
-1. Project name? (alphanumeric, no spaces)
-2. HTTP port? (e.g., 2675 for "cms", 8080 default)
-3. PHP version? (php84 recommended, php83 for D12)
-4. Starting point? (1: CMS, 2: Kickstart, 3: Core)
-```
-
-### Step 2: Create Configuration
+### Step 1: Enter devShell
 ```bash
-cat > .env << EOF
-PROJECT_NAME=<name>
-DOMAIN=<name>.ddev.site
-PORT=<port>
-PHP_VERSION=<php84|php83>
-DOCROOT=web
-EOF
-```
+# If using direnv:
+direnv allow
 
-### Step 3: Initialize
-```bash
-# Git setup first!
-git init
-git add .env .gitignore flake.nix .services/
-
-# Enter shell and install
+# Otherwise:
 nix develop
-start-demo --detached
+```
+
+### Step 2: Run setup-drupal
+```bash
+setup-drupal [package] [php-version] [site-name]
+```
+Follow the interactive prompts. The script will:
+- Generate a PORT from your site name (T9 keypad mapping)
+- Write .env with your configuration
+- Run composer create-project
+- Generate a minimal settings.php
+- Stage .env in git
+
+### Step 3: Start the environment
+```bash
+# If using direnv:
+start-detached
+
+# Otherwise: first exit, then re-enter and start
+exit
+nix develop
+start-detached
 ```
 
 ### Step 4: Monitor Installation
 ```bash
-# Wait for HTTP 200 (NOT process count!)
 BASE_URL="http://$(grep DOMAIN .env | cut -d= -f2):$(grep PORT .env | cut -d= -f2)"
 until curl -s -o /dev/null -w "%{http_code}" "$BASE_URL" | grep -q "200"; do
-  echo "Waiting...$(pc-status | grep -c running)"
+  echo "Waiting..."
   sleep 15
 done
-
-# Get login link
 drush uli
 ```
-
-**Note:** Init processes exit after completion. "3/7 running" after setup is SUCCESS.
 
 ## Site Template Recipes
 

@@ -90,41 +90,7 @@ fi
 
 # Move files to current directory if project dir is different
 if [ "$PROJECT_DIR" != "." ] && [ -d "$PROJECT_DIR" ]; then
-  echo "Moving files from $PROJECT_DIR to current directory..."
-  
-  for item in "$PROJECT_DIR"/*; do
-    [ -e "$item" ] || continue
-    basename_item=$(basename "$item")
-    if [ -e "$basename_item" ]; then
-      echo "Merging: $basename_item"
-      if [ -d "$item" ] && [ -d "$basename_item" ]; then
-        cp -r "$item"/* "$basename_item"/ 2>/dev/null || true
-        cp -r "$item"/.[^.]* "$basename_item"/ 2>/dev/null || true
-      else
-        rm -rf "$basename_item"
-        mv "$item" ./
-      fi
-    else
-      mv "$item" ./
-    fi
-  done
-  
-  # Move hidden files
-  for item in "$PROJECT_DIR"/.[^.]*; do
-    [ -e "$item" ] || continue
-    basename_item=$(basename "$item")
-    if [ -e "$basename_item" ]; then
-      rm -rf "$basename_item"
-    fi
-    mv "$item" ./
-  done
-  
-  # Remove empty directory
-  if rmdir "$PROJECT_DIR" 2>/dev/null; then
-    echo "Cleaned up $PROJECT_DIR directory"
-  else
-    echo "Warning: $PROJECT_DIR not empty, manual cleanup may be needed"
-  fi
+  flatten_subdirectory "$PROJECT_DIR"
 fi
 
 # Run composer install to ensure dependencies

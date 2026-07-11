@@ -67,7 +67,7 @@
           projectName = getEnvWithDefault "PROJECT_NAME" "drupal-demo";
           domain = getEnvWithDefault "DOMAIN" "${projectName}.ddev.site";
           port = getEnvWithDefault "PORT" "8088";
-          phpVersion = getEnvWithDefault "PHP_VERSION" "php83";
+          phpVersion = getEnvWithDefault "PHP_VERSION" "php84";
           # Get the appropriate package set based on PHP version
           drupalPackage = getEnvWithDefault "DRUPAL_PACKAGE" "drupal/cms";
           phpTimeout = lib.strings.toInt (getEnvWithDefault "PHP_TIMEOUT" "60");
@@ -522,7 +522,11 @@
             nativeBuildInputs = [
               self'.packages.demo
               (pkgs.writeScriptBin "drupal-download"
-                (builtins.readFile ./.services/bin/drupal-download))
+                (builtins.readFile ./.services/lib/common.sh + builtins.readFile ./.services/bin/drupal-download))
+              (pkgs.writeScriptBin "setup-drupal"
+                (builtins.readFile ./.services/lib/common.sh + builtins.readFile ./.services/bin/setup-drupal))
+              (pkgs.writeScriptBin "setup-settings"
+                (builtins.readFile ./.services/bin/setup-settings))
               (pkgs.writeScriptBin "drupal-recipe"
                 (builtins.readFile ./.services/bin/drupal-recipe))
               (pkgs.writeScriptBin "drupal-install"
@@ -823,6 +827,8 @@
                 echo -e "\033[1;32mpc-stop\033[0m                 Stop the current project's development environment"
                 echo -e "\033[1;32mstop-all\033[0m                Stop ALL process-compose development environments"
                 echo -e "\033[1;32mnix run .#demo\033[0m          Set up a new Drupal site, or start servers"
+                echo -e "\033[1;32msetup-drupal\033[0m            Interactive setup: .env, composer create-project, settings.php"
+                echo -e "\033[1;32msetup-settings\033[0m          Generate minimal settings.php (never clobbers)"
                 echo -e "\033[1;32mstart-demo\033[0m              Set up a new Drupal site, or start servers"
                 echo -e "\033[1;32mdrupal-download\033[0m         Download Drupal package (for manual/debug install)"
                 echo -e "\033[1;32mdrupal-recipe\033[0m           Install site template via composer"

@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+#
+# setup-drupal: Interactive Drupal project initialization
+#
+# Usage: setup-drupal [DRUPAL_PACKAGE] [PHP_VERSION] [SITE_NAME]
+#
+# All arguments are optional. Missing values are prompted interactively.
+# Writes .env, runs composer create-project, flattens subdirectory,
+# runs composer install, calls setup-settings, and git-adds .env.
+#
+
+set -e
+
+# Source embedded common.sh functions
+# (prepended by flake.nix via builtins.readFile concatenation)
+
+# --- Argument parsing ---
+DRUPAL_PACKAGE="${1:-}"
+PHP_VERSION="${2:-}"
+SITE_NAME="${3:-}"
+
+# --- Prompt for missing values ---
+
+# Prompt 1: Drupal package
+if [ -z "$DRUPAL_PACKAGE" ]; then
+  echo "Select a starting package:"
+  echo "  1) drupal/cms (Drupal CMS - recommended)"
+  echo "  2) drupal/core-recommended (Minimal Drupal core)"
+  echo "  3) centarro/commerce-kickstart-project (Commerce Kickstart)"
+  echo "  4) Other (enter custom package name)"
+  read -p "Choice [1]: " choice
+  case "${choice:-1}" in
+    1|"") DRUPAL_PACKAGE="drupal/cms" ;;
+    2) DRUPAL_PACKAGE="drupal/core-recommended" ;;
+    3) DRUPAL_PACKAGE="centarro/commerce-kickstart-project" ;;
+    4)
+      read -p "Enter composer package name: " DRUPAL_PACKAGE
+      if [ -z "$DRUPAL_PACKAGE" ]; then
+        echo "No package entered, using default: drupal/cms"
+        DRUPAL_PACKAGE="drupal/cms"
+      fi
+      ;;
+    *)
+      echo "Invalid choice, using default: drupal/cms"
+      DRUPAL_PACKAGE="drupal/cms"
+      ;;
+  esac
+fi
+
+# Prompt 2: PHP version
+if [ -z "$PHP_VERSION" ]; then
+  echo ""
+  echo "Select PHP version:"
+  echo "  1) php84 (default)"
+  echo "  2) php85"
+  echo "  3) php83"
+  read -p "Choice [1]: " choice
+  case "${choice:-1}" in
+    1|"") PHP_VERSION="php84" ;;
+    2) PHP_VERSION="php85" ;;
+    3) PHP_VERSION="php83" ;;
+    *)
+      echo "Invalid choice, using default: php84"
+      PHP_VERSION="php84"
+      ;;
+  esac
+fi
+
+# Prompt 3: Site name
+if [ -z "$SITE_NAME" ]; then
+  DEFAULT_SITE_NAME=$(basename "$(pwd)")
+  echo ""
+  read -p "Site name [$DEFAULT_SITE_NAME]: " SITE_NAME
+  SITE_NAME="${SITE_NAME:-$DEFAULT_SITE_NAME}"
+fi
+
+echo ""
+echo "========================================="
+echo "Setting up Drupal project"
+echo "  Package:    $DRUPAL_PACKAGE"
+echo "  PHP:        $PHP_VERSION"
+echo "  Site name:  $SITE_NAME"
+echo "========================================="
+echo ""
+
+# --- Generate port from site name ---
+PORT=$(generate_port "$SITE_NAME")
+echo "Generated port: $PORT"
+
+# --- Write .env from .env.example ---
+if [ ! -f ".env.example" ]; then
+  echo "Error: .env.example not found. Are you in a drupal-flake project root?"
+  exit 1
+fi
+
+write_env_from_example "$SITE_NAME" "$PHP_VERSION" "$PORT"
+
+# --- Determine temp directory name for composer create-project ---
+TEMP_DIR=".setup-drupal-tmp-$$"
+
+# --- Run composer create-project ---
+echo ""
+echo "Running composer create-project..."
+echo "  $DRUPAL_PACKAGE -> $TEMP_DIR"
+echo ""
+
+composer create-project "$DRUPAL_PACKAGE" "$TEMP_DIR" --no-interaction 2>&1 || {
+  echo "composer create-project failed"
+  rm -rf "$TEMP_DIR" 2>/dev/null || true
+  exit 1
+}
+
+# --- Flatten subdirectory ---
+flatten_subdirectory "$TEMP_DIR"
+
+# --- Run composer install ---
+echo ""
+echo "Running composer install..."
+composer install 2>&1 || {
+  echo "composer install completed with warnings"
+}
+
+# --- Run setup-settings ---
+echo ""
+echo "Generating settings.php..."
+if command -v setup-settings >/dev/null 2>&1; then
+  setup-settings --project-name "$SITE_NAME" || echo "setup-settings skipped (settings.php may already exist)"
+else
+  echo "setup-settings not found in PATH — skipping"
+fi
+
+# --- Git integration ---
+if git rev-parse --is-inside-work-tree 2>/dev/null; then
+  if [ -f ".env" ]; then
+    git add .env 2>/dev/null || true
+    echo "Added .env to git staging (required for MySQL socket to work)"
+  fi
+fi
+
+# --- Export for current session ---
+export PROJECT_NAME="$SITE_NAME"
+export PHP_VERSION="$PHP_VERSION"
+export PORT="$PORT"
+export DOMAIN="${SITE_NAME}.ddev.site"
+
+# --- Summary ---
+echo ""
+echo "========================================="
+echo "✅ Setup complete!"
+echo "========================================="
+echo ""
+echo "Site name:    $SITE_NAME"
+echo "PHP version:  $PHP_VERSION"
+echo "Port:         $PORT"
+echo "URL:          http://${SITE_NAME}.ddev.site:${PORT}"
+echo ""
+
+if [ -n "$DIRENV_DIR" ]; then
+  echo "📌 Direnv detected — .env changes are auto-tracked."
+  echo "   Run 'start-detached' to start the development environment."
+else
+  echo "📌 Run 'exit' then 'nix develop' to pick up the new .env values."
+  echo "   Then run 'start-detached' to start the development environment."
+fi

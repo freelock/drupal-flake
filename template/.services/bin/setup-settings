@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+#
+# setup-settings: Generate a minimal settings.php for Drupal
+#
+# Usage: setup-settings [--site <sitename>] [--project-name <name>]
+#
+# Creates web/sites/<site>/settings.php with essential settings,
+# nix-settings stanza, and includes for local/production overrides.
+# Never clobbers an existing settings.php.
+#
+
+set -e
+
+# Defaults
+SITE="default"
+PROJECT_NAME=""
+DOCROOT=""
+
+# Parse args
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --site)
+      SITE="$2"
+      shift 2
+      ;;
+    --project-name)
+      PROJECT_NAME="$2"
+      shift 2
+      ;;
+    --help|-h)
+      echo "Usage: setup-settings [--site <sitename>] [--project-name <name>]"
+      echo ""
+      echo "Generate a minimal settings.php at web/sites/<sitename>/settings.php"
+      echo "Default sitename: default"
+      echo "--project-name: used for db socket path (default: read from .env, fallback to site name)"
+      echo "Exits with error if settings.php already exists (no clobber)."
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: setup-settings [--site <sitename>] [--project-name <name>]"
+      exit 1
+      ;;
+  esac
+done
+
+# Validate site name
+if ! echo "$SITE" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+  echo "Error: Invalid site name '$SITE'. Use only letters, numbers, underscores, and hyphens."
+  exit 1
+fi
+
+SITE_PATH="web/sites/$SITE"
+SETTINGS_FILE="$SITE_PATH/settings.php"
+
+# Bail if settings.php already exists
+if [ -f "$SETTINGS_FILE" ]; then
+  echo "Error: $SETTINGS_FILE already exists."
+  echo "Move or delete it first, then re-run setup-settings."
+  exit 1
+fi
+
+# Determine project name for socket path
+if [ -z "$PROJECT_NAME" ] && [ -f ".env" ]; then
+  PROJECT_NAME=$(grep "^PROJECT_NAME=" .env | head -1 | cut -d= -f2 | xargs)
+fi
+if [ -z "$PROJECT_NAME" ]; then
+  PROJECT_NAME="$SITE"
+fi
+
+# Create directories
+mkdir -p "$SITE_PATH/files"
+mkdir -p config/sync
+
+[ -f config/sync/.gitkeep ] || touch config/sync/.gitkeep
+
+# Determine docroot for PROJECT_ROOT_REL
+if [ -z "$DOCROOT" ] && [ -f ".env" ]; then
+  DOCROOT=$(grep "^DOCROOT=" .env | head -1 | cut -d= -f2 | xargs)
+fi
+DOCROOT="${DOCROOT:-web}"
+
+# Calculate PROJECT_ROOT_REL: relative path from docroot to project root
+if [ "$DOCROOT" = "." ]; then
+  PROJECT_ROOT_REL=""
+else
+  PROJECT_ROOT_REL="../"
+fi
+
+cat > "$SETTINGS_FILE" << 'SETTINGSEOF'
+<?php
+
+$databases = [];
+
+$settings['update_free_access'] = FALSE;
+
+$settings['container_yamls'][] = $app_root . '/' . $site_path . '/services.yml';
+
+/**
+ * Trusted host patterns.
+ * Uncomment and add your production domains.
+ */
+# $settings['trusted_host_patterns'] = [
+#   '^example\.org$',
+#   '^.*\.example\.org$',
+# ];
+
+/**
+ * Private file path.
+ * Uncomment and set to a path outside the docroot.
+ */
+# $settings['file_private_path'] = '../private';
+
+$settings['file_scan_ignore_directories'] = [
+  'node_modules',
+  'bower_components',
+];
+
+$settings['entity_update_batch_size'] = 50;
+
+$settings['entity_update_backup'] = TRUE;
+
+$settings['config_sync_directory'] = '../config/sync';
+
+$settings['skip_permissions_hardening'] = TRUE;
+
+/**
+ * Hash salt.
+ * Generate one with: drush php:eval 'echo \Drupal\Component\Utility\Crypt::randomBytesBase64(55)'
+ * Store it in settings.local.php or a per-environment include file.
+ */
+$settings['hash_salt'] = 'change-this-in-production';
+
+if (file_exists(__DIR__ . '/settings.local.php')) {
+  include __DIR__ . '/settings.local.php';
+} elseif (file_exists(__DIR__ . '/settings.production.php')) {
+  include __DIR__ . '/settings.production.php';
+}
+
+# BEGIN NIX SETTINGS
+SETTINGSEOF
+
+# Append the nix-settings block separately (needs shell interpolation for socket path)
+cat >> "$SETTINGS_FILE" << NIXEOF
+if (file_exists(\$app_root . '/' . \$site_path . '/settings.nix.php') &&
+  file_exists(\$app_root . '/${PROJECT_ROOT_REL}data/${PROJECT_NAME}-db/mysql.sock') &&
+  filetype(\$app_root . '/${PROJECT_ROOT_REL}data/${PROJECT_NAME}-db/mysql.sock') === 'socket') {
+  include \$app_root . '/' . \$site_path . '/settings.nix.php';
+}
+# END NIX SETTINGS
+NIXEOF
+
+echo "Created $SETTINGS_FILE"

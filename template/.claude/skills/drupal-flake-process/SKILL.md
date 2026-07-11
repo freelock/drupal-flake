@@ -29,7 +29,7 @@ elif docker ps 2>/dev/null | grep -qiE "(drupal|php|nginx)"; then
   echo "docker containers running"
 else
   DRUPAL_ENV="none"
-  echo "No environment detected. Run: nix develop && start-detached"
+  echo "No environment detected. Run: setup-drupal to initialize, then start-detached"
 fi
 ```
 
@@ -58,7 +58,7 @@ BASE_URL="http://$(grep DOMAIN .env | cut -d= -f2):$(grep PORT .env | cut -d= -f
 curl -s -o /dev/null -w "%{http_code}" "$BASE_URL"  # Should be 200
 ```
 
-**Port calculation helper:** "cms" = 267 (c=2,m=6,s=7) + 2 = **2675**
+**Port calculation:** Generated automatically from the site name using T9 phone keypad mapping + 2 (e.g. "cms" → 2675). Run `setup-drupal` to auto-configure, or set PORT manually in .env.
 
 ### 2. Drush Commands
 
@@ -151,7 +151,7 @@ ls -la /tmp/process-compose-*.sock 2>/dev/null
 echo $DIRENV_DIR  # or run: nix develop
 
 # Key .env variables
-# PROJECT_NAME=foo, DOMAIN=foo.ddev.site, PORT=2675, PHP_VERSION=php84
+# PROJECT_NAME=foo, DOMAIN=foo.ddev.site, PORT=2675, PHP_VERSION=php83
 ```
 
 ### DDev (Alternative to drupal-flake)
