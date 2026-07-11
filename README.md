@@ -81,14 +81,18 @@ Ports must be higher than 1024, or else you need some sort of root access to be 
 You can specify the PHP version to use by setting the `PHP_VERSION` environment variable or adding it to your `.env` file:
 
 ```
-PHP_VERSION=php83  # Default, uses php83 from nixpkgs nixos-unstable
+PHP_VERSION=php83  # Default
 ```
 
 Available PHP versions include:
 - php74 (from a pinned nixpkgs commit: 6e3a86f2f73a466656a401302d3ece26fba401d9)
+  - Legacy support for older Drupal sites
   - Note: php74 does not include phpunit, php-codesniffer, and phpstan due to availability limitations
   - Includes the standalone drush command for older Drupal sites that use Drush 8
-- php80, php81, php82, php83, php84 (from nixpkgs nixos-unstable)
+- php80, php82, php83, php84, php85 (from current nixpkgs/nixos-unstable, subject to upstream availability)
+- php81 (from a pinned nixpkgs commit, rebuilt here as PHP 8.1.34)
+
+If you are targeting current Drupal CMS / Drupal 12 work, prefer `php83` or newer. Use `php81` for older supported projects that still need the 8.1 line, and `php74` only for legacy maintenance.
 
 ### Local Extensions
 
