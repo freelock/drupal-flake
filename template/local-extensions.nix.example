@@ -22,7 +22,7 @@ in
   # Additional Nix packages to include in the dev shell
   extraNixPackages = with pkgs; [
     # Example: add Node.js and development tools
-    # nodejs_20
+    # nodejs_24
     # yarn
     # git
     # curl
@@ -58,7 +58,7 @@ in
     # Option 1: Simple script wrapper
     # (writeScriptBin "my-pipeline-tool" ''
     #   #!${bash}/bin/bash
-    #   ${nodejs_20}/bin/node /path/to/your/script.js "$@"
+    #   ${nodejs_24}/bin/node /path/to/your/script.js "$@"
     # '')
     
     # Option 2: Full project derivation
@@ -69,13 +69,13 @@ in
     #     rev = "main";
     #     sha256 = "...";
     #   };
-    #   buildInputs = [ nodejs_20 ];
+    #   buildInputs = [ nodejs_24 ];
     #   installPhase = ''
     #     mkdir -p $out/bin
     #     cp -r . $out/lib/pipeline-tools
     #     # Create wrapper scripts for each tool
     #     for script in *.js; do
-    #       makeWrapper ${nodejs_20}/bin/node $out/bin/''${script%.js} \
+    #       makeWrapper ${nodejs_24}/bin/node $out/bin/''${script%.js} \
     #         --add-flags "$out/lib/pipeline-tools/$script"
     #     done
     #   '';

@@ -9,6 +9,7 @@ let
       gd
       imagick
       intl
+      mbstring
       pdo_mysql
       soap
       xsl

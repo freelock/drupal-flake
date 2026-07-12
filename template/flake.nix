@@ -908,7 +908,7 @@
           devShells.test = pkgs.mkShellNoCC {
             inputsFrom =
               [ config.process-compose."default".services.outputs.devShell ];
-            nativeBuildInputs = [ pkgs.nodejs_20 ]
+            nativeBuildInputs = [ pkgs.nodejs_24 ]
               # playwright-driver.browsers provides NixOS-patched Chromium/Firefox/WebKit
               # On NixOS this is required; on other Linux it's a fallback if no system browser found
               ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.playwright-driver.browsers ];
