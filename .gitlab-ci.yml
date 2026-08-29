@@ -120,6 +120,23 @@ test-xdebug-functionality:
     expire_in: 1 week
   timeout: 20m
 
+test-setup-drupal:
+  stage: test
+  image: $NIXOS_IMAGE
+  before_script:
+    - echo "Setting up Nix environment..."
+    - nix --version
+  script:
+    - echo "🧪 Running setup safety tests..."
+    - bash tests/test-setup-drupal.sh
+  rules:
+    - changes:
+        - "template/.services/bin/setup-drupal"
+        - "template/.services/bin/setup-settings"
+        - "template/.services/lib/common.sh"
+        - "tests/test-setup-drupal.sh"
+  timeout: 10m
+
 test-detached-parsing:
   stage: test
   image: $NIXOS_IMAGE

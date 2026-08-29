@@ -55,40 +55,76 @@ generate_port() {
   echo $(( 10#$digits + 2000 ))
 }
 
-# write_env_from_example: Create .env from .env.example with filled values
-# Arguments: PROJECT_NAME PHP_VERSION PORT
+# env_file_value: Print the first active value for a key in .env.
+env_file_value() {
+  local key="$1"
+  [ -f .env ] || return 1
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' .env
+}
+
+# set_env_value: Replace a key (including a commented example) or append it.
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  local tmp
+  tmp=$(mktemp)
+  awk -v key="$key" -v value="$value" '
+    BEGIN { replaced = 0 }
+    $0 ~ "^[[:space:]#]*" key "=" && !replaced {
+      print key "=" value
+      replaced = 1
+      next
+    }
+    { print }
+    END { if (!replaced) print key "=" value }
+  ' .env > "$tmp"
+  mv "$tmp" .env
+}
+
+# append_env_value_if_missing: Preserve .env and add only absent active keys.
+append_env_value_if_missing() {
+  local key="$1"
+  local value="$2"
+  if ! awk -F= -v key="$key" '$1 == key { found = 1 } END { exit !found }' .env; then
+    if [ -s .env ] && [ -n "$(tail -c 1 .env)" ]; then
+      printf '\n' >> .env
+    fi
+    printf '%s=%s\n' "$key" "$value" >> .env
+  fi
+}
+
+# write_env_from_example: Fill the flake-owned .env keys safely.
+# Arguments: PROJECT_NAME PHP_VERSION PORT DOCROOT FORCE_ENV
 write_env_from_example() {
   local project_name="$1"
   local php_version="$2"
   local port="$3"
+  local docroot="${4:-web}"
+  local force_env="${5:-false}"
 
-  if [ ! -f ".env.example" ]; then
-    echo "Error: .env.example not found in current directory"
-    return 1
-  fi
-
-  if [ -f ".env" ]; then
-    echo "Warning: .env already exists, overwriting"
-  fi
-
-  cp .env.example .env
-
-  # Detect sed in-place flag (GNU vs BSD)
-  local sed_i
-  if sed --version 2>/dev/null | grep -q GNU; then
-    sed_i=(-i)
+  if [ "$force_env" = true ]; then
+    if [ ! -f .env.example ]; then
+      echo "Error: .env.example not found in current directory"
+      return 1
+    fi
+    cp .env.example .env
+    set_env_value PROJECT_NAME "$project_name"
+    set_env_value DOMAIN "$project_name.ddev.site"
+    set_env_value PORT "$port"
+    set_env_value PHP_VERSION "$php_version"
+    set_env_value DOCROOT "$docroot"
+    set_env_value SITE_NAME "$project_name"
+    echo "Replaced .env from .env.example"
   else
-    sed_i=(-i '')
+    [ -f .env ] || : > .env
+    append_env_value_if_missing PROJECT_NAME "$project_name"
+    append_env_value_if_missing DOMAIN "$project_name.ddev.site"
+    append_env_value_if_missing PORT "$port"
+    append_env_value_if_missing PHP_VERSION "$php_version"
+    append_env_value_if_missing DOCROOT "$docroot"
+    append_env_value_if_missing SITE_NAME "$project_name"
+    echo "Preserved .env and filled missing drupal-flake settings"
   fi
-
-  sed "${sed_i[@]}" "s/^# PROJECT_NAME=.*/PROJECT_NAME=$project_name/" .env
-  sed "${sed_i[@]}" "s/^# DOMAIN=.*/DOMAIN=$project_name.ddev.site/" .env
-  sed "${sed_i[@]}" "s/^# PORT=.*/PORT=$port/" .env
-  sed "${sed_i[@]}" "s/^# PHP_VERSION=.*/PHP_VERSION=$php_version/" .env
-  sed "${sed_i[@]}" "s/^# DOCROOT=.*/DOCROOT=web/" .env
-  sed "${sed_i[@]}" "s/^# SITE_NAME=.*/SITE_NAME=$project_name/" .env
-
-  echo "Wrote .env with PROJECT_NAME=$project_name, PHP_VERSION=$php_version, PORT=$port"
 }
 
 # flatten_subdirectory: Move contents of a subdirectory up, then remove it

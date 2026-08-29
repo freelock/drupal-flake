@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 #
-# setup-drupal: Interactive Drupal project initialization
+# setup-drupal: Safely configure a new or existing Drupal project.
 #
-# Usage: setup-drupal [DRUPAL_PACKAGE] [PHP_VERSION] [SITE_NAME]
-#
-# All arguments are optional. Missing values are prompted interactively.
-# Writes .env, runs composer create-project, flattens subdirectory,
-# runs composer install, calls setup-settings, and git-adds .env.
+# Legacy usage remains supported:
+#   setup-drupal [DRUPAL_PACKAGE] [PHP_VERSION] [SITE_NAME]
 #
 
 set -e
@@ -14,153 +11,365 @@ set -e
 # Source embedded common.sh functions
 # (prepended by flake.nix via builtins.readFile concatenation)
 
-# --- Argument parsing ---
-DRUPAL_PACKAGE="${1:-}"
-PHP_VERSION="${2:-}"
-SITE_NAME="${3:-}"
+usage() {
+  cat <<'EOF'
+Usage:
+  setup-drupal [OPTIONS]
+  setup-drupal [DRUPAL_PACKAGE] [PHP_VERSION] [SITE_NAME]
 
-# --- Prompt for missing values ---
+Modes (mutually exclusive):
+  --existing             Configure Drupal code already in this directory
+  --new                  Create a new Drupal project with Composer
 
-# Prompt 1: Drupal package
-if [ -z "$DRUPAL_PACKAGE" ]; then
-  echo "Select a starting package:"
-  echo "  1) drupal/cms (Drupal CMS - recommended)"
-  echo "  2) drupal/recommended-project (Minimal Drupal core)"
-  echo "  3) centarro/commerce-kickstart-project (Commerce Kickstart)"
-  echo "  4) Other (enter custom package name)"
-  read -p "Choice [1]: " choice
-  case "${choice:-1}" in
-    1|"") DRUPAL_PACKAGE="drupal/cms" ;;
-    2) DRUPAL_PACKAGE="drupal/recommended-project" ;;
-    3) DRUPAL_PACKAGE="centarro/commerce-kickstart-project" ;;
-    4)
-      read -p "Enter composer package name: " DRUPAL_PACKAGE
-      if [ -z "$DRUPAL_PACKAGE" ]; then
-        echo "No package entered, using default: drupal/cms"
-        DRUPAL_PACKAGE="drupal/cms"
-      fi
+If no mode is supplied, existing Drupal code is detected in DOCROOT, web, or
+this directory. Existing code selects --existing; otherwise --new is used.
+
+Options:
+  --package PACKAGE      Composer project package (default: drupal/cms)
+  --php-version VERSION  PHP package name (default: php84)
+  --site-name NAME       Project/site name (default: current directory name)
+  --port PORT            HTTP port (default: generated from site name)
+  --non-interactive      Use defaults instead of prompting
+  --force-env            Replace .env from .env.example before filling values
+  -h, --help             Show this help
+
+Safety:
+  --existing refuses to run unless Drupal code is present and never invokes
+  Composer. --new refuses to run when Drupal code is already present. Without
+  --force-env, existing .env values are preserved and only missing flake-owned
+  keys are appended.
+EOF
+}
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+require_value() {
+  [ $# -ge 2 ] && [ -n "$2" ] || fail "$1 requires a value"
+}
+
+MODE=""
+DRUPAL_PACKAGE=""
+PHP_VERSION=""
+SITE_NAME=""
+PORT=""
+NON_INTERACTIVE=false
+FORCE_ENV=false
+POSITIONAL=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --existing)
+      [ "$MODE" != "new" ] || fail "--existing and --new are mutually exclusive"
+      MODE="existing"
+      shift
+      ;;
+    --new)
+      [ "$MODE" != "existing" ] || fail "--existing and --new are mutually exclusive"
+      MODE="new"
+      shift
+      ;;
+    --package)
+      require_value "$1" "${2:-}"
+      DRUPAL_PACKAGE="$2"
+      shift 2
+      ;;
+    --php-version)
+      require_value "$1" "${2:-}"
+      PHP_VERSION="$2"
+      shift 2
+      ;;
+    --site-name)
+      require_value "$1" "${2:-}"
+      SITE_NAME="$2"
+      shift 2
+      ;;
+    --port)
+      require_value "$1" "${2:-}"
+      PORT="$2"
+      shift 2
+      ;;
+    --non-interactive)
+      NON_INTERACTIVE=true
+      shift
+      ;;
+    --force-env)
+      FORCE_ENV=true
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [ $# -gt 0 ]; do
+        POSITIONAL+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      fail "unknown option: $1 (use --help for usage)"
       ;;
     *)
-      echo "Invalid choice, using default: drupal/cms"
-      DRUPAL_PACKAGE="drupal/cms"
+      POSITIONAL+=("$1")
+      shift
       ;;
   esac
+done
+
+[ ${#POSITIONAL[@]} -le 3 ] || fail "too many positional arguments (use --help for usage)"
+[ -z "$DRUPAL_PACKAGE" ] || [ -z "${POSITIONAL[0]:-}" ] || fail "package specified both positionally and with --package"
+[ -z "$PHP_VERSION" ] || [ -z "${POSITIONAL[1]:-}" ] || fail "PHP version specified both positionally and with --php-version"
+[ -z "$SITE_NAME" ] || [ -z "${POSITIONAL[2]:-}" ] || fail "site name specified both positionally and with --site-name"
+DRUPAL_PACKAGE="${DRUPAL_PACKAGE:-${POSITIONAL[0]:-}}"
+PHP_VERSION="${PHP_VERSION:-${POSITIONAL[1]:-}}"
+SITE_NAME="${SITE_NAME:-${POSITIONAL[2]:-}}"
+
+ENV_DOCROOT=$(env_file_value DOCROOT || true)
+DETECTED_DOCROOT=""
+
+is_drupal_docroot() {
+  local candidate="$1"
+  local prefix="${candidate%/}"
+  [ "$prefix" = "." ] && prefix=""
+  [ -f "${prefix:+$prefix/}index.php" ] && [ -d "${prefix:+$prefix/}core" ]
+}
+
+for candidate in "$ENV_DOCROOT" web .; do
+  [ -n "$candidate" ] || continue
+  if is_drupal_docroot "$candidate"; then
+    DETECTED_DOCROOT="$candidate"
+    break
+  fi
+done
+
+# Composer-managed Drupal is still an existing project before dependencies have
+# been installed. Detect its project metadata so --new can never flatten a
+# second project over it.
+if [ -z "$DETECTED_DOCROOT" ] && [ -f composer.json ] &&
+   grep -qE '"(drupal/core[^"/]*|drupal/cms|drupal/recommended-project|drupal-composer/drupal-project)"' composer.json; then
+  DETECTED_DOCROOT="${ENV_DOCROOT:-web}"
 fi
 
-# Prompt 2: PHP version
-if [ -z "$PHP_VERSION" ]; then
-  echo ""
-  echo "Select PHP version:"
-  echo "  1) php84 (default)"
-  echo "  2) php85"
-  echo "  3) php83"
-  read -p "Choice [1]: " choice
-  case "${choice:-1}" in
-    1|"") PHP_VERSION="php84" ;;
-    2) PHP_VERSION="php85" ;;
-    3) PHP_VERSION="php83" ;;
-    *)
-      echo "Invalid choice, using default: php84"
-      PHP_VERSION="php84"
-      ;;
-  esac
+if [ -z "$MODE" ]; then
+  if [ -n "$DETECTED_DOCROOT" ]; then
+    MODE="existing"
+  else
+    MODE="new"
+  fi
 fi
 
-# Prompt 3: Site name
+if [ "$MODE" = "existing" ] && [ -z "$DETECTED_DOCROOT" ]; then
+  fail "--existing requested, but no Drupal code was found in DOCROOT, web, or the project root"
+fi
+if [ "$MODE" = "new" ] && [ -n "$DETECTED_DOCROOT" ]; then
+  fail "--new requested, but Drupal code already exists in '$DETECTED_DOCROOT'"
+fi
+
+if [ "$MODE" = "existing" ]; then
+  DOCROOT="$DETECTED_DOCROOT"
+else
+  DOCROOT="${ENV_DOCROOT:-web}"
+fi
+
+if [ -z "$SITE_NAME" ]; then
+  SITE_NAME=$(env_file_value PROJECT_NAME || true)
+fi
 if [ -z "$SITE_NAME" ]; then
   DEFAULT_SITE_NAME=$(basename "$(pwd)")
-  echo ""
-  read -p "Site name [$DEFAULT_SITE_NAME]: " SITE_NAME
+  if [ "$NON_INTERACTIVE" = false ]; then
+    echo ""
+    read -r -p "Site name [$DEFAULT_SITE_NAME]: " SITE_NAME
+  fi
   SITE_NAME="${SITE_NAME:-$DEFAULT_SITE_NAME}"
+fi
+
+if [ -z "$PHP_VERSION" ]; then
+  PHP_VERSION=$(env_file_value PHP_VERSION || true)
+fi
+if [ -z "$PHP_VERSION" ]; then
+  if [ "$NON_INTERACTIVE" = false ]; then
+    echo ""
+    echo "Select PHP version:"
+    echo "  1) php84 (default)"
+    echo "  2) php85"
+    echo "  3) php83"
+    read -r -p "Choice [1]: " choice
+    case "${choice:-1}" in
+      1|"") PHP_VERSION="php84" ;;
+      2) PHP_VERSION="php85" ;;
+      3) PHP_VERSION="php83" ;;
+      *) echo "Invalid choice, using default: php84"; PHP_VERSION="php84" ;;
+    esac
+  else
+    PHP_VERSION="php84"
+  fi
+fi
+
+if [ "$MODE" = "new" ] && [ -z "$DRUPAL_PACKAGE" ]; then
+  DRUPAL_PACKAGE=$(env_file_value DRUPAL_PACKAGE || true)
+fi
+if [ "$MODE" = "new" ] && [ -z "$DRUPAL_PACKAGE" ]; then
+  if [ "$NON_INTERACTIVE" = false ]; then
+    echo "Select a starting package:"
+    echo "  1) drupal/cms (Drupal CMS - recommended)"
+    echo "  2) drupal/recommended-project (Minimal Drupal core)"
+    echo "  3) centarro/commerce-kickstart-project (Commerce Kickstart)"
+    echo "  4) Other (enter custom package name)"
+    read -r -p "Choice [1]: " choice
+    case "${choice:-1}" in
+      1|"") DRUPAL_PACKAGE="drupal/cms" ;;
+      2) DRUPAL_PACKAGE="drupal/recommended-project" ;;
+      3) DRUPAL_PACKAGE="centarro/commerce-kickstart-project" ;;
+      4)
+        read -r -p "Enter composer package name: " DRUPAL_PACKAGE
+        DRUPAL_PACKAGE="${DRUPAL_PACKAGE:-drupal/cms}"
+        ;;
+      *) echo "Invalid choice, using default: drupal/cms"; DRUPAL_PACKAGE="drupal/cms" ;;
+    esac
+  else
+    DRUPAL_PACKAGE="drupal/cms"
+  fi
+fi
+
+if [ -z "$PORT" ]; then
+  PORT=$(env_file_value PORT || true)
+fi
+if [ -z "$PORT" ]; then
+  PORT=$(generate_port "$SITE_NAME")
+  if [ "$NON_INTERACTIVE" = false ]; then
+    read -r -p "Port [$PORT]: " PORT_INPUT
+    PORT="${PORT_INPUT:-$PORT}"
+  fi
+fi
+
+if [ "$FORCE_ENV" = false ]; then
+  ENV_PROJECT_NAME=$(env_file_value PROJECT_NAME || true)
+  ENV_PHP_VERSION=$(env_file_value PHP_VERSION || true)
+  ENV_PORT=$(env_file_value PORT || true)
+  SITE_NAME="${ENV_PROJECT_NAME:-$SITE_NAME}"
+  PHP_VERSION="${ENV_PHP_VERSION:-$PHP_VERSION}"
+  PORT="${ENV_PORT:-$PORT}"
+  DOMAIN=$(env_file_value DOMAIN || true)
+else
+  DOMAIN=""
+fi
+DOMAIN="${DOMAIN:-${SITE_NAME}.ddev.site}"
+
+if ! echo "$SITE_NAME" | grep -qE '^[a-zA-Z0-9][a-zA-Z0-9_-]*$'; then
+  fail "invalid site name '$SITE_NAME'; use letters, numbers, underscores, and hyphens"
+fi
+case "$PHP_VERSION" in
+  php74|php81|php82|php83|php84|php85) ;;
+  *) fail "unsupported PHP version: $PHP_VERSION" ;;
+esac
+if ! echo "$PORT" | grep -qE '^[0-9]+$' || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  fail "invalid port: $PORT"
 fi
 
 echo ""
 echo "========================================="
 echo "Setting up Drupal project"
-echo "  Package:    $DRUPAL_PACKAGE"
-echo "  PHP:        $PHP_VERSION"
-echo "  Site name:  $SITE_NAME"
+echo "  Mode:        $MODE"
+[ "$MODE" = "new" ] && echo "  Package:     $DRUPAL_PACKAGE"
+echo "  PHP:         $PHP_VERSION"
+echo "  Site name:   $SITE_NAME"
+echo "  Docroot:     $DOCROOT"
+echo "  Port:        $PORT"
 echo "========================================="
 echo ""
 
-# --- Generate port from site name ---
-PORT=$(generate_port "$SITE_NAME")
-echo "Generated port: $PORT"
-read -p "Port [$PORT]: " PORT_INPUT
-PORT="${PORT_INPUT:-$PORT}"
-
-# --- Determine temp directory name for composer create-project ---
-TEMP_DIR=".setup-drupal-tmp-$$"
-
-# --- Run composer create-project ---
-echo ""
-echo "Running composer create-project..."
-echo "  $DRUPAL_PACKAGE -> $TEMP_DIR"
-echo ""
-
-composer create-project "$DRUPAL_PACKAGE" "$TEMP_DIR" --no-interaction 2>&1 || {
-  echo "composer create-project failed"
-  rm -rf "$TEMP_DIR" 2>/dev/null || true
-  exit 1
-}
-
-# --- Write .env from .env.example ---
-if [ ! -f ".env.example" ]; then
-  echo "Error: .env.example not found. Are you in a drupal-flake project root?"
-  exit 1
-fi
-
-write_env_from_example "$SITE_NAME" "$PHP_VERSION" "$PORT"
-
-# --- Flatten subdirectory ---
-flatten_subdirectory "$TEMP_DIR"
-
-# --- Run composer install ---
-echo ""
-echo "Running composer install..."
-composer install 2>&1 || {
-  echo "composer install completed with warnings"
-}
-
-# --- Run setup-settings ---
-echo ""
-echo "Generating settings.php..."
-if command -v setup-settings >/dev/null 2>&1; then
-  setup-settings --project-name "$SITE_NAME" || echo "setup-settings skipped (settings.php may already exist)"
-else
-  echo "setup-settings not found in PATH — skipping"
-fi
-
-# --- Git integration ---
-if git rev-parse --is-inside-work-tree 2>/dev/null; then
-  if [ -f ".env" ]; then
-    git add .env 2>/dev/null || true
-    echo "Added .env to git staging (required for MySQL socket to work)"
+if [ "$MODE" = "new" ]; then
+  TEMP_DIR=".setup-drupal-tmp-$$"
+  ENV_BACKUP=""
+  if [ -f .env ] && [ "$FORCE_ENV" = false ]; then
+    ENV_BACKUP=$(mktemp)
+    cp .env "$ENV_BACKUP"
   fi
+
+  cleanup_setup_drupal() {
+    rm -rf "$TEMP_DIR" 2>/dev/null || true
+    [ -z "$ENV_BACKUP" ] || rm -f "$ENV_BACKUP"
+  }
+  trap cleanup_setup_drupal EXIT
+
+  echo "Running composer create-project..."
+  echo "  $DRUPAL_PACKAGE -> $TEMP_DIR"
+  if ! composer create-project "$DRUPAL_PACKAGE" "$TEMP_DIR" --no-interaction 2>&1; then
+    fail "composer create-project failed"
+  fi
+
+  flatten_subdirectory "$TEMP_DIR"
+
+  if [ -n "$ENV_BACKUP" ]; then
+    cp "$ENV_BACKUP" .env
+  fi
+
+  write_env_from_example "$SITE_NAME" "$PHP_VERSION" "$PORT" "$DOCROOT" "$FORCE_ENV"
+
+  echo ""
+  echo "Running composer install..."
+  composer install 2>&1 || echo "composer install completed with warnings"
+else
+  write_env_from_example "$SITE_NAME" "$PHP_VERSION" "$PORT" "$DOCROOT" "$FORCE_ENV"
 fi
 
-# --- Export for current session ---
-export PROJECT_NAME="$SITE_NAME"
-export PHP_VERSION="$PHP_VERSION"
-export PORT="$PORT"
-export DOMAIN="${SITE_NAME}.ddev.site"
+DOCROOT_PREFIX="${DOCROOT%/}"
+[ "$DOCROOT_PREFIX" = "." ] && DOCROOT_PREFIX=""
+SETTINGS_FILE="${DOCROOT_PREFIX:+$DOCROOT_PREFIX/}sites/default/settings.php"
 
-# --- Summary ---
+if [ ! -f "$SETTINGS_FILE" ]; then
+  echo ""
+  echo "Generating settings.php..."
+  command -v setup-settings >/dev/null 2>&1 || fail "setup-settings not found in PATH"
+  setup-settings --project-name "$SITE_NAME" --docroot "$DOCROOT"
+fi
+
+command -v nix-settings >/dev/null 2>&1 || fail "nix-settings not found in PATH"
+PROJECT_ROOT_REL=""
+DOCROOT_REMAINDER="${DOCROOT#./}"
+DOCROOT_REMAINDER="${DOCROOT_REMAINDER%/}"
+if [ -z "$DOCROOT_REMAINDER" ] || [ "$DOCROOT_REMAINDER" = "." ]; then
+  PROJECT_ROOT_REL="."
+else
+  while [ -n "$DOCROOT_REMAINDER" ]; do
+    PROJECT_ROOT_REL="../$PROJECT_ROOT_REL"
+    case "$DOCROOT_REMAINDER" in
+      */*) DOCROOT_REMAINDER="${DOCROOT_REMAINDER#*/}" ;;
+      *) DOCROOT_REMAINDER="" ;;
+    esac
+  done
+  PROJECT_ROOT_REL="${PROJECT_ROOT_REL%/}"
+fi
+nix-settings "$SITE_NAME" "$DOCROOT" "" "$PROJECT_ROOT_REL"
+
+if git rev-parse --is-inside-work-tree 2>/dev/null && [ -f .env ]; then
+  git add .env 2>/dev/null || true
+  echo "Added .env to git staging (required for MySQL socket to work)"
+fi
+
+export PROJECT_NAME="$SITE_NAME"
+export PHP_VERSION PORT DOMAIN DOCROOT
+
 echo ""
 echo "========================================="
 echo "✅ Setup complete!"
 echo "========================================="
 echo ""
-echo "Site name:    $SITE_NAME"
-echo "PHP version:  $PHP_VERSION"
-echo "Port:         $PORT"
-echo "URL:          http://${SITE_NAME}.ddev.site:${PORT}"
+echo "Mode:          $MODE"
+echo "Site name:     $SITE_NAME"
+echo "PHP version:   $PHP_VERSION"
+echo "Docroot:       $DOCROOT"
+echo "Port:          $PORT"
+echo "URL:           http://${DOMAIN}:${PORT}"
 echo ""
 
-if [ -n "$DIRENV_DIR" ]; then
+if [ -n "${DIRENV_DIR:-}" ]; then
   echo "📌 Direnv detected — run 'direnv reload' to pick up new .env values."
-  echo "   Then run 'start-detached' to start the development environment."
 else
   echo "📌 Run 'exit' then 'nix develop' to pick up the new .env values."
-  echo "   Then run 'start-detached' to start the development environment."
 fi
+echo "   Then run 'start-detached' to start the development environment."

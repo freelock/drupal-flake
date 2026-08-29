@@ -56,6 +56,27 @@ This will install a fresh copy of Drupal CMS if you don't have one, and launch i
 
 The demo setup is skipped if the web/index.php file already exists -- it then just starts up the servers, so this is entirely non-destructive and safe to run.
 
+### Set up a project from the dev shell
+
+Run `setup-drupal` after entering `nix develop`. It safely chooses between configuring existing Drupal code and creating a new project:
+
+```bash
+setup-drupal                         # Auto-detect existing code; otherwise create new
+setup-drupal --existing             # Require existing Drupal code
+setup-drupal --new --package drupal/recommended-project
+setup-drupal --new --php-version php85 --site-name example --port 9080
+setup-drupal --non-interactive       # Accept defaults without prompts
+```
+
+`--existing` and `--new` are mutually exclusive. Existing mode searches the `DOCROOT` from `.env`, then `web`, then the project root. It refuses to run when Drupal code is absent and never runs Composer or moves project files. Conversely, `--new` refuses to run when Drupal code is already present.
+
+By default, both modes preserve an existing `.env` and append only missing drupal-flake settings. Use `--force-env` only when you intentionally want to replace `.env` from `.env.example`. The original positional interface remains available:
+
+```bash
+setup-drupal [DRUPAL_PACKAGE] [PHP_VERSION] [SITE_NAME]
+```
+
+Run `setup-drupal --help` for all options. `setup-settings` also accepts `--docroot <path>` and otherwise reads `DOCROOT` from `.env` before falling back to `web`.
 
 ## Setting name, port, domain
 

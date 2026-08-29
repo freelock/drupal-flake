@@ -1,135 +1,158 @@
 #!/usr/bin/env bash
 #
-# setup-settings: Generate a minimal settings.php for Drupal
+# setup-settings: Generate a minimal settings.php for Drupal.
 #
 # Usage: setup-settings [--site <sitename>] [--project-name <name>]
-#
-# Creates web/sites/<site>/settings.php with essential settings,
-# nix-settings stanza, and includes for local/production overrides.
-# Never clobbers an existing settings.php.
+#                       [--docroot <path>]
 #
 
 set -e
 
-# Defaults
 SITE="default"
 PROJECT_NAME=""
-DOCROOT=""
+DOCROOT="${DOCROOT:-}"
 
-# Parse args
+usage() {
+  cat <<'EOF'
+Usage: setup-settings [--site <sitename>] [--project-name <name>] [--docroot <path>]
+
+Generate a minimal settings.php under DOCROOT/sites/<sitename>.
+  --site          Drupal site directory (default: default)
+  --project-name  Name used for the database socket path
+  --docroot       Drupal document root (default: DOCROOT from .env, then web)
+
+The command refuses to overwrite an existing settings.php.
+EOF
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --site)
-      SITE="$2"
-      shift 2
-      ;;
-    --project-name)
-      PROJECT_NAME="$2"
+    --site|--project-name|--docroot)
+      [ $# -ge 2 ] && [ -n "$2" ] || {
+        echo "Error: $1 requires a value" >&2
+        exit 1
+      }
+      case "$1" in
+        --site) SITE="$2" ;;
+        --project-name) PROJECT_NAME="$2" ;;
+        --docroot) DOCROOT="$2" ;;
+      esac
       shift 2
       ;;
     --help|-h)
-      echo "Usage: setup-settings [--site <sitename>] [--project-name <name>]"
-      echo ""
-      echo "Generate a minimal settings.php at web/sites/<sitename>/settings.php"
-      echo "Default sitename: default"
-      echo "--project-name: used for db socket path (default: read from .env, fallback to site name)"
-      echo "Exits with error if settings.php already exists (no clobber)."
+      usage
       exit 0
       ;;
     *)
-      echo "Unknown option: $1"
-      echo "Usage: setup-settings [--site <sitename>] [--project-name <name>]"
+      echo "Unknown option: $1" >&2
+      usage >&2
       exit 1
       ;;
   esac
 done
 
-# Validate site name
 if ! echo "$SITE" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-  echo "Error: Invalid site name '$SITE'. Use only letters, numbers, underscores, and hyphens."
+  echo "Error: Invalid site name '$SITE'. Use only letters, numbers, underscores, and hyphens." >&2
   exit 1
 fi
 
-SITE_PATH="web/sites/$SITE"
-SETTINGS_FILE="$SITE_PATH/settings.php"
+read_env_value() {
+  local key="$1"
+  [ -f .env ] || return 1
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' .env
+}
 
-# Bail if settings.php already exists
-if [ -f "$SETTINGS_FILE" ]; then
-  echo "Error: $SETTINGS_FILE already exists."
-  echo "Move or delete it first, then re-run setup-settings."
-  exit 1
-fi
-
-# Determine project name for socket path
-if [ -z "$PROJECT_NAME" ] && [ -f ".env" ]; then
-  PROJECT_NAME=$(grep "^PROJECT_NAME=" .env | head -1 | cut -d= -f2 | xargs)
-fi
-if [ -z "$PROJECT_NAME" ]; then
-  PROJECT_NAME="$SITE"
-fi
-
-# Create directories
-mkdir -p "$SITE_PATH/files"
-mkdir -p config/sync
-
-[ -f config/sync/.gitkeep ] || touch config/sync/.gitkeep
-
-# Determine docroot for PROJECT_ROOT_REL
-if [ -z "$DOCROOT" ] && [ -f ".env" ]; then
-  DOCROOT=$(grep "^DOCROOT=" .env | head -1 | cut -d= -f2 | xargs)
+if [ -z "$DOCROOT" ]; then
+  DOCROOT=$(read_env_value DOCROOT || true)
 fi
 DOCROOT="${DOCROOT:-web}"
+while [ "$DOCROOT" != "${DOCROOT#./}" ]; do
+  DOCROOT="${DOCROOT#./}"
+done
+DOCROOT="${DOCROOT%/}"
+DOCROOT="${DOCROOT:-.}"
 
-# Calculate PROJECT_ROOT_REL: relative path from docroot to project root
-if [ "$DOCROOT" = "." ]; then
-  PROJECT_ROOT_REL=""
-else
-  PROJECT_ROOT_REL="../"
+case "$DOCROOT" in
+  /*|..|../*|*/../*|*/..)
+    echo "Error: DOCROOT must be a relative path within the project: $DOCROOT" >&2
+    exit 1
+    ;;
+esac
+
+DOCROOT_PREFIX="${DOCROOT%/}"
+[ "$DOCROOT_PREFIX" = "." ] && DOCROOT_PREFIX=""
+SITE_PATH="${DOCROOT_PREFIX:+$DOCROOT_PREFIX/}sites/$SITE"
+SETTINGS_FILE="$SITE_PATH/settings.php"
+
+if [ -f "$SETTINGS_FILE" ]; then
+  echo "Error: $SETTINGS_FILE already exists." >&2
+  echo "Move or delete it first, then re-run setup-settings." >&2
+  exit 1
 fi
 
-cat > "$SETTINGS_FILE" << 'SETTINGSEOF'
+if [ -z "$PROJECT_NAME" ]; then
+  PROJECT_NAME=$(read_env_value PROJECT_NAME || true)
+fi
+PROJECT_NAME="${PROJECT_NAME:-$SITE}"
+
+mkdir -p "$SITE_PATH/files"
+mkdir -p config/sync
+[ -f config/sync/.gitkeep ] || touch config/sync/.gitkeep
+
+PROJECT_ROOT_REL=""
+if [ -n "$DOCROOT_PREFIX" ]; then
+  remaining="$DOCROOT_PREFIX"
+  while [ -n "$remaining" ]; do
+    PROJECT_ROOT_REL="../$PROJECT_ROOT_REL"
+    case "$remaining" in
+      */*) remaining="${remaining#*/}" ;;
+      *) remaining="" ;;
+    esac
+  done
+fi
+
+CONFIG_SYNC_PATH="${PROJECT_ROOT_REL}config/sync"
+
+cat > "$SETTINGS_FILE" << SETTINGSEOF
 <?php
 
-$databases = [];
+\$databases = [];
 
-$settings['update_free_access'] = FALSE;
+\$settings['update_free_access'] = FALSE;
 
-$settings['container_yamls'][] = $app_root . '/' . $site_path . '/services.yml';
+\$settings['container_yamls'][] = \$app_root . '/' . \$site_path . '/services.yml';
 
 /**
  * Trusted host patterns.
  * Uncomment and add your production domains.
  */
-# $settings['trusted_host_patterns'] = [
-#   '^example\.org$',
-#   '^.*\.example\.org$',
+# \$settings['trusted_host_patterns'] = [
+#   '^example\\.org\$',
+#   '^.*\\.example\\.org\$',
 # ];
 
 /**
  * Private file path.
  * Uncomment and set to a path outside the docroot.
  */
-# $settings['file_private_path'] = '../private';
+# \$settings['file_private_path'] = '../private';
 
-$settings['file_scan_ignore_directories'] = [
+\$settings['file_scan_ignore_directories'] = [
   'node_modules',
   'bower_components',
 ];
 
-$settings['entity_update_batch_size'] = 50;
-
-$settings['entity_update_backup'] = TRUE;
-
-$settings['config_sync_directory'] = '../config/sync';
-
-$settings['skip_permissions_hardening'] = TRUE;
+\$settings['entity_update_batch_size'] = 50;
+\$settings['entity_update_backup'] = TRUE;
+\$settings['config_sync_directory'] = '${CONFIG_SYNC_PATH}';
+\$settings['skip_permissions_hardening'] = TRUE;
 
 /**
  * Hash salt.
- * Generate one with: drush php:eval 'echo \Drupal\Component\Utility\Crypt::randomBytesBase64(55)'
+ * Generate one with: drush php:eval 'echo \\Drupal\\Component\\Utility\\Crypt::randomBytesBase64(55)'
  * Store it in settings.local.php or a per-environment include file.
  */
-$settings['hash_salt'] = 'change-this-in-production';
+\$settings['hash_salt'] = 'change-this-in-production';
 
 if (file_exists(__DIR__ . '/settings.local.php')) {
   include __DIR__ . '/settings.local.php';
@@ -138,16 +161,12 @@ if (file_exists(__DIR__ . '/settings.local.php')) {
 }
 
 # BEGIN NIX SETTINGS
-SETTINGSEOF
-
-# Append the nix-settings block separately (needs shell interpolation for socket path)
-cat >> "$SETTINGS_FILE" << NIXEOF
 if (file_exists(\$app_root . '/' . \$site_path . '/settings.nix.php') &&
   file_exists(\$app_root . '/${PROJECT_ROOT_REL}data/${PROJECT_NAME}-db/mysql.sock') &&
   filetype(\$app_root . '/${PROJECT_ROOT_REL}data/${PROJECT_NAME}-db/mysql.sock') === 'socket') {
   include \$app_root . '/' . \$site_path . '/settings.nix.php';
 }
 # END NIX SETTINGS
-NIXEOF
+SETTINGSEOF
 
 echo "Created $SETTINGS_FILE"
