@@ -137,6 +137,23 @@ test-setup-drupal:
         - "tests/test-setup-drupal.sh"
   timeout: 10m
 
+test-service-guard:
+  stage: test
+  image: $NIXOS_IMAGE
+  before_script:
+    - echo "Setting up Nix environment..."
+    - nix --version
+    - mkdir -p ~/.config/nix
+    - echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+  script:
+    - echo "🧪 Running CLI-only service guard tests..."
+    - nix develop --impure --command bash tests/test-service-guard.sh
+  rules:
+    - changes:
+        - "template/flake.nix"
+        - "tests/test-service-guard.sh"
+  timeout: 10m
+
 test-detached-parsing:
   stage: test
   image: $NIXOS_IMAGE

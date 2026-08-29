@@ -134,6 +134,37 @@ You can extend the development environment with additional PHP extensions, Nix p
 
 The `nix/` directory is excluded from `refresh-flake` updates, so your customizations persist across flake updates.
 
+## CLI-only server environments
+
+Servers that use drupal-flake only to provide PHP, Composer, Drush, and related
+CLI tooling should set:
+
+```bash
+DRUPAL_FLAKE_SERVICES_DISABLED=1
+```
+
+With this policy enabled, the dev shells and CLI tools remain available, while
+`start`, `start-detached`, `start-demo`, `start-config`, `nix run`,
+`nix run .#detached`, `nix run .#demo`, and `nix run .#config` refuse to launch
+MariaDB, nginx, PHP-FPM, or installer processes. Automatic browser opening is
+also disabled.
+
+On an Ubuntu host, set the variable in `/etc/environment` for PAM-created login
+and SSH sessions:
+
+```text
+DRUPAL_FLAKE_SERVICES_DISABLED=1
+```
+
+Log out and reconnect after changing `/etc/environment`. For an immediate
+current-shell test, use `export DRUPAL_FLAKE_SERVICES_DISABLED=1`. If a CI agent
+or other service enters the flake from systemd rather than a login session, add
+`Environment=DRUPAL_FLAKE_SERVICES_DISABLED=1` to that service's unit override.
+
+The explicitly internal `demo-static-internal` process-compose package remains
+an implementation detail and should not be invoked directly. Public commands
+and apps are the supported operator interface.
+
 ## Commands available in Dev Shell
 
 ### Development Commands:

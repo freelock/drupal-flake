@@ -73,6 +73,10 @@
           phpTimeout = lib.strings.toInt (getEnvWithDefault "PHP_TIMEOUT" "60");
           maxRam = getEnvWithDefault "MAX_RAM" "512M";
           docroot = getEnvWithDefault "DOCROOT" "web";
+          servicesDisabledValue =
+            getEnvWithDefault "DRUPAL_FLAKE_SERVICES_DISABLED" "0";
+          servicesDisabled = builtins.elem
+            (lib.toLower servicesDisabledValue) [ "1" "true" "yes" "on" ];
           # Calculate the relative path from docroot to project root
           projectRoot = if docroot == "." then
             "."
@@ -251,7 +255,8 @@
               dbSocket = dbSocket;
             };
 
-          } // lib.optionalAttrs (builtins.getEnv "CI" == ""
+          } // lib.optionalAttrs (!servicesDisabled
+            && builtins.getEnv "CI" == ""
             && builtins.getEnv "GITLAB_CI" == ""
             && builtins.getEnv "GITHUB_ACTIONS" == "") {
               # Open browser to the domain (only if not in CI environment)
@@ -298,6 +303,13 @@
           # Demo package that wraps process-compose demo with argument parsing
           packages.demo = pkgs.writeScriptBin "demo" ''
             #!${pkgs.bash}/bin/bash
+
+            case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+              1|true|TRUE|yes|YES|on|ON)
+                echo "Error: drupal-flake service startup is disabled in this environment."
+                exit 1
+                ;;
+            esac
 
             # Default values
             DRUPAL_PACKAGE="drupal/cms"
@@ -397,6 +409,13 @@
           # Wrapper for demo-static that can handle detached mode
           packages.demo-static = pkgs.writeScriptBin "demo-static" ''
             #!${pkgs.bash}/bin/bash
+
+            case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+              1|true|TRUE|yes|YES|on|ON)
+                echo "Error: drupal-flake service startup is disabled in this environment."
+                exit 1
+                ;;
+            esac
 
             # Get the actual demo-static-internal binary
             DEMO_STATIC_BIN="${self'.packages.demo-static-internal}/bin/demo-static-internal"
@@ -510,6 +529,55 @@
                 "process_completed_successfully";
             };
 
+          # Guard the public process-compose apps as well as the dev-shell
+          # shortcuts. The generated packages remain available internally so the
+          # wrappers can execute them after checking the host policy.
+          packages.start-guarded = pkgs.writeScriptBin "start-guarded" ''
+            #!${pkgs.bash}/bin/bash
+            case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+              1|true|TRUE|yes|YES|on|ON)
+                echo "Error: drupal-flake service startup is disabled in this environment."
+                exit 1
+                ;;
+            esac
+            exec ${config.packages.default}/bin/default "$@"
+          '';
+          packages.detached-guarded = pkgs.writeScriptBin "detached-guarded" ''
+            #!${pkgs.bash}/bin/bash
+            case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+              1|true|TRUE|yes|YES|on|ON)
+                echo "Error: drupal-flake service startup is disabled in this environment."
+                exit 1
+                ;;
+            esac
+            exec ${config.packages.detached}/bin/detached "$@"
+          '';
+          packages.config-guarded = pkgs.writeScriptBin "config-guarded" ''
+            #!${pkgs.bash}/bin/bash
+            case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+              1|true|TRUE|yes|YES|on|ON)
+                echo "Error: drupal-flake service startup is disabled in this environment."
+                exit 1
+                ;;
+            esac
+            exec ${config.packages.config}/bin/config "$@"
+          '';
+          apps.default = {
+            type = "app";
+            program = "${self'.packages.start-guarded}/bin/start-guarded";
+            meta.description = "Start the Drupal development environment unless host policy disables services";
+          };
+          apps.detached = {
+            type = "app";
+            program = "${self'.packages.detached-guarded}/bin/detached-guarded";
+            meta.description = "Start the Drupal development environment detached unless disabled";
+          };
+          apps.config = {
+            type = "app";
+            program = "${self'.packages.config-guarded}/bin/config-guarded";
+            meta.description = "Install Drupal from config unless host policy disables services";
+          };
+
           # Dev shell for debugging
           devShells.default = let
             # Prepare local extension packages safely
@@ -533,10 +601,23 @@
                 (builtins.readFile ./.services/bin/drupal-install))
               (pkgs.writeScriptBin "start-config" ''
                 #!${pkgs.bash}/bin/bash
+                case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+                  1|true|TRUE|yes|YES|on|ON)
+                    echo "Error: drupal-flake service startup is disabled in this environment."
+                    exit 1
+                    ;;
+                esac
                 nix run .#config
               '')
               (pkgs.writeScriptBin "start-demo" ''
                 #!${pkgs.bash}/bin/bash
+
+                case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+                  1|true|TRUE|yes|YES|on|ON)
+                    echo "Error: drupal-flake service startup is disabled in this environment."
+                    exit 1
+                    ;;
+                esac
 
                 # Default values
                 DETACHED_MODE=false
@@ -590,10 +671,22 @@
               '')
               (pkgs.writeScriptBin "start" ''
                 #!${pkgs.bash}/bin/bash
+                case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+                  1|true|TRUE|yes|YES|on|ON)
+                    echo "Error: drupal-flake service startup is disabled in this environment."
+                    exit 1
+                    ;;
+                esac
                 nix run
               '')
               (pkgs.writeScriptBin "start-detached" ''
                 #!${pkgs.bash}/bin/bash
+                case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}" in
+                  1|true|TRUE|yes|YES|on|ON)
+                    echo "Error: drupal-flake service startup is disabled in this environment."
+                    exit 1
+                    ;;
+                esac
                 echo "🚀 Starting ${projectName} development environment in detached mode..."
 
                 # Use setsid to properly detach the process while keeping server functionality
@@ -868,6 +961,7 @@
             DRUSH_OPTIONS_URI = "http://${domain}:${port}";
 
             shellHook = ''
+              export DRUPAL_FLAKE_SERVICES_DISABLED="''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}"
               export PROJECT_ROOT="$PWD"
               export PROJECT_ROOT_REL="${projectRoot}"
               export PROJECT_NAME="${projectName}"
@@ -900,6 +994,11 @@
               ${localExtensions.extraShellHook or ""}
 
               >&2 echo "Entering development environment for ${projectName}"
+              case "''${DRUPAL_FLAKE_SERVICES_DISABLED:-0}" in
+                1|true|TRUE|yes|YES|on|ON)
+                  >&2 echo "CLI-only mode: drupal-flake service startup is disabled."
+                  ;;
+              esac
               >&2 echo "Use '?', '??', or 'flake-help' to see the commands provided in this flake."
             '';
           };
@@ -919,6 +1018,7 @@
             PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
 
             shellHook = ''
+              export DRUPAL_FLAKE_SERVICES_DISABLED="''${DRUPAL_FLAKE_SERVICES_DISABLED:-${servicesDisabledValue}}"
               export PROJECT_ROOT="$PWD"
               export PROJECT_ROOT_REL="${projectRoot}"
               export PROJECT_NAME="${projectName}"
