@@ -301,11 +301,17 @@ EOF
                     
                     # Test xdrush with a simple command (status should work even with minimal Drupal)
                     echo "Testing xdrush status command..."
-                    if timeout 10 xdrush status 2>&1 | grep -E "(Drush|PHP|error)" >/dev/null; then
+                    timeout 10 xdrush status > data/logs/xdrush-test-output.log 2>&1 || true
+                    if grep -q 'COMPOSER_RUNTIME_BIN_DIR' data/logs/xdrush-test-output.log; then
+                        echo "❌ xdrush passed the Composer proxy script to PHP instead of executing it"
+                        cat data/logs/xdrush-test-output.log
+                        exit 1
+                    elif grep -E "(Drush|PHP|error)" data/logs/xdrush-test-output.log >/dev/null; then
                         echo "✅ xdrush command execution working"
                     else
                         echo "⚠️ xdrush execution test inconclusive (may be expected with minimal setup)"
                     fi
+                    rm -f data/logs/xdrush-test-output.log
                 else
                     echo "❌ xdrush command not available"
                     exit 1

@@ -783,32 +783,27 @@
               (writeScriptBin "xdrush" ''
                 #!${pkgs.bash}/bin/bash
                 # Create logs directory if it doesn't exist
-                mkdir -p $PROJECT_ROOT/data/logs
-                mkdir -p $PROJECT_ROOT/data/xdebug_profiles
+                mkdir -p "$PROJECT_ROOT/data/logs"
+                mkdir -p "$PROJECT_ROOT/data/xdebug_profiles"
 
                 if [ "${phpVersion}" = "php74" ] && command -v drush >/dev/null 2>&1; then
                   # Use standalone drush with PHP 7.4
-                  php -d xdebug.mode=debug \
-                    -d xdebug.start_with_request=yes \
-                    -d xdebug.client_host=localhost \
-                    -d xdebug.client_port=9003 \
-                    drush "$@"
+                  DRUSH_BIN="drush"
+                elif [ -x "$PROJECT_ROOT/vendor/bin/drush" ]; then
+                  # Support Composer's standard binary directory.
+                  DRUSH_BIN="$PROJECT_ROOT/vendor/bin/drush"
+                elif [ -x "$PROJECT_ROOT/bin/drush" ]; then
+                  # Support the alternative binary directory used by kickstart.
+                  DRUSH_BIN="$PROJECT_ROOT/bin/drush"
                 else
-                  # Find drush binary (support both vendor/bin and bin/ for kickstart)
-                  if [ -f "$PROJECT_ROOT/vendor/bin/drush" ]; then
-                    DRUSH_BIN="$PROJECT_ROOT/vendor/bin/drush"
-                  elif [ -f "$PROJECT_ROOT/bin/drush" ]; then
-                    DRUSH_BIN="$PROJECT_ROOT/bin/drush"
-                  else
-                    echo "Error: Could not find drush binary in vendor/bin or bin/"
-                    exit 1
-                  fi
-                  php -d xdebug.mode=debug \
-                    -d xdebug.start_with_request=yes \
-                    -d xdebug.client_host=localhost \
-                    -d xdebug.client_port=9003 \
-                    $DRUSH_BIN "$@"
+                  echo "Error: Could not find an executable drush binary in vendor/bin or bin/"
+                  exit 1
                 fi
+
+                XDEBUG_MODE=debug \
+                  XDEBUG_CONFIG="client_host=localhost client_port=9003" \
+                  XDEBUG_TRIGGER=1 \
+                  "$DRUSH_BIN" "$@"
               '')
               (writeScriptBin "xphpunit" ''
                 #!${pkgs.bash}/bin/bash
