@@ -65,6 +65,7 @@ setup-drupal                         # Auto-detect existing code; otherwise crea
 setup-drupal --existing             # Require existing Drupal code
 setup-drupal --new --package drupal/recommended-project
 setup-drupal --new --php-version php85 --site-name example --port 9080
+setup-drupal --new --core 12         # Target the Drupal 12 pre-release line
 setup-drupal --non-interactive       # Accept defaults without prompts
 ```
 
@@ -77,6 +78,31 @@ setup-drupal [DRUPAL_PACKAGE] [PHP_VERSION] [SITE_NAME]
 ```
 
 Run `setup-drupal --help` for all options. `setup-settings` also accepts `--docroot <path>` and otherwise reads `DOCROOT` from `.env` before falling back to `web`.
+
+### Targeting a Drupal core version
+
+Pass `--core` to pick a Drupal core instead of a package. It accepts a bare major or a full Composer constraint:
+
+```bash
+setup-drupal --new --core 11         # drupal/recommended-project:^11
+setup-drupal --new --core 12         # drupal/recommended-project:^12 (pre-release)
+setup-drupal --new --core '^11.2'
+setup-drupal --new --core 12.0.0-beta1
+```
+
+A bare major becomes a `^MAJOR` constraint, so new point releases are picked up automatically without editing anything. The same applies to the interactive package menu, which offers the pre-release core as a choice.
+
+`--core` only applies to `--new`, and only to the project templates that are versioned in lockstep with core — `drupal/recommended-project`, `drupal/core-recommended`, and `drupal-composer/drupal-project`. Packages like `drupal/cms` and the Commerce Kickstart project are versioned independently of core, so they cannot be pinned to a core major.
+
+#### Pre-release cores
+
+Core majors without a stable release cannot be installed by a plain `composer create-project`, because Composer refuses pre-release versions by default. When the target major has no stable release, `setup-drupal`:
+
+- appends the inline `@dev` stability flag to the package, so the value stored in `DRUPAL_PACKAGE` keeps working anywhere else it is used
+- passes `--stability=dev --prefer-stable` to `composer create-project`, and `--prefer-stable` to the follow-up `composer install`, so dependencies that *do* have stable releases stay on them
+- raises `PHP_VERSION` to the minimum that core needs, unless you requested a version yourself — in which case it refuses rather than letting Composer fail with an opaque solver message
+
+Set `DEMO_STABILITY=dev` if you point `nix run .#demo` or `start-demo` at a pre-release package; those paths do not infer stability from the package name.
 
 ## Setting name, port, domain
 
@@ -113,7 +139,7 @@ Available PHP versions include:
 - php80, php82, php83, php84, php85 (from current nixpkgs/nixos-unstable, subject to upstream availability)
 - php81 (from a pinned nixpkgs commit, rebuilt here as PHP 8.1.34)
 
-If you are targeting current Drupal CMS / Drupal 12 work, prefer `php83` or newer. Use `php81` for older supported projects that still need the 8.1 line, and `php74` only for legacy maintenance.
+If you are targeting current Drupal CMS work, prefer `php83` or newer. Drupal 12 requires PHP 8.5, so use `php85` for it. Use `php81` for older supported projects that still need the 8.1 line, and `php74` only for legacy maintenance.
 
 ### Local Extensions
 

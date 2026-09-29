@@ -55,6 +55,8 @@ start-demo [package] [project-name] [--detached]
 | **Commerce Kickstart** | `centarro/commerce-kickstart-project` | None | E-commerce |
 | **Vanilla Core** | `drupal/recommended-project` | `standard` or `minimal` | Custom builds |
 
+`drupal/cms` and Commerce Kickstart are versioned independently of Drupal core, so they cannot be pinned to a core major with `--core`.
+
 ### Recipe Discovery
 ```bash
 # Available in drupal/cms
@@ -65,7 +67,10 @@ drush recipe:validate recipes/contrib/<name>
 ```
 
 ### Drupal 12 Specifics
-- Requires PHP 8.3+ (use `PHP_VERSION=php83`, `php84`, or `php85`)
+- Requires PHP 8.5 (`php85`). `setup-drupal --core 12` raises `PHP_VERSION` for you unless you set it yourself.
+- No stable release exists yet, only `12.0.0-alpha1` on `drupal/recommended-project` and `drupal/core-recommended`. `drupal/cms` has no Drupal 12 release.
+- `setup-drupal` handles the Composer stability flags: it appends the inline `@dev` flag to the package and passes `--stability=dev --prefer-stable` to `create-project`, so dependencies that do have stable releases still resolve to them.
+- Driving Composer or `nix run .#demo` yourself against a pre-release package needs `DEMO_STABILITY=dev`; those paths do not infer stability from the package name.
 - Some contrib modules may need `--stability=dev`
 - Check core compatibility: `composer show drupal/core | grep versions`
 

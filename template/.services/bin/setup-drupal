@@ -26,12 +26,21 @@ this directory. Existing code selects --existing; otherwise --new is used.
 
 Options:
   --package PACKAGE      Composer project package (default: drupal/cms)
+  --core VERSION         Target Drupal core major (11, 12) or a full constraint
+                         (^11.2, 12.0.0-beta1). Implies the core-versioned
+                         project template and the PHP version that core needs.
   --php-version VERSION  PHP package name (default: php84)
   --site-name NAME       Project/site name (default: current directory name)
   --port PORT            HTTP port (default: generated from site name)
   --non-interactive      Use defaults instead of prompting
   --force-env            Replace .env from .env.example before filling values
   -h, --help             Show this help
+
+Drupal core:
+  --core only applies to --new. A bare major becomes a "^MAJOR" constraint, so
+  new point releases are picked up automatically. Drupal core majors at or
+  above 12 have no stable release yet; setup-drupal lets Composer install
+  pre-releases for them and requires the PHP version those majors need.
 
 Safety:
   --existing refuses to run unless Drupal code is present and never invokes
@@ -52,11 +61,16 @@ require_value() {
 
 MODE=""
 DRUPAL_PACKAGE=""
+CORE_VERSION=""
 PHP_VERSION=""
 SITE_NAME=""
 PORT=""
 NON_INTERACTIVE=false
 FORCE_ENV=false
+PACKAGE_EXPLICIT=false
+PHP_EXPLICIT=false
+TARGET_CONSTRAINT=""
+CORE_STABILITY=""
 POSITIONAL=()
 
 while [ $# -gt 0 ]; do
@@ -74,11 +88,18 @@ while [ $# -gt 0 ]; do
     --package)
       require_value "$1" "${2:-}"
       DRUPAL_PACKAGE="$2"
+      PACKAGE_EXPLICIT=true
+      shift 2
+      ;;
+    --core)
+      require_value "$1" "${2:-}"
+      CORE_VERSION="$2"
       shift 2
       ;;
     --php-version)
       require_value "$1" "${2:-}"
       PHP_VERSION="$2"
+      PHP_EXPLICIT=true
       shift 2
       ;;
     --site-name)
@@ -125,8 +146,81 @@ done
 [ -z "$PHP_VERSION" ] || [ -z "${POSITIONAL[1]:-}" ] || fail "PHP version specified both positionally and with --php-version"
 [ -z "$SITE_NAME" ] || [ -z "${POSITIONAL[2]:-}" ] || fail "site name specified both positionally and with --site-name"
 DRUPAL_PACKAGE="${DRUPAL_PACKAGE:-${POSITIONAL[0]:-}}"
+[ -z "${POSITIONAL[0]:-}" ] || PACKAGE_EXPLICIT=true
 PHP_VERSION="${PHP_VERSION:-${POSITIONAL[1]:-}}"
+[ -z "${POSITIONAL[1]:-}" ] || PHP_EXPLICIT=true
 SITE_NAME="${SITE_NAME:-${POSITIONAL[2]:-}}"
+
+# The first Drupal core major without a stable release. Majors at or above this
+# exist only as pre-releases, so Composer needs dev stability to install them.
+# Bump this when the next major opens.
+FIRST_PRERELEASE_CORE=12
+
+# Templates whose own version tracks the Drupal core major. Only these can carry
+# the constraint that --core adds; drupal/cms and the Kickstart project are
+# versioned independently of core and cannot target a specific core.
+is_core_versioned_package() {
+  case "$(package_base_name "$1")" in
+    drupal/recommended-project|drupal/core-recommended|drupal-composer/drupal-project) return 0 ;;
+  esac
+  return 1
+}
+
+package_base_name() {
+  printf '%s' "${1%%:*}"
+}
+
+# core_constraint: Map a --core value to a Composer constraint. A bare major
+# becomes "^MAJOR" so the newest release on that line is picked up as new point
+# releases land; anything already constrained is passed through untouched.
+core_constraint() {
+  case "$1" in
+    *[!0-9.]*) printf '%s' "$1" ;;
+    *) printf '^%s' "$1" ;;
+  esac
+}
+
+core_major() {
+  printf '%s' "$1" | sed 's/^[\^~>=<v]*//; s/[^0-9].*$//'
+}
+
+# core_is_prerelease: True when the targeted core has no stable release, so
+# Composer must be allowed to install pre-release versions.
+core_is_prerelease() {
+  local constraint="$1"
+  case "$constraint" in
+    *-alpha*|*-beta*|*-rc*|*-RC*|*-dev*|*-patch*) return 0 ;;
+  esac
+  local major
+  major=$(core_major "$constraint")
+  case "$major" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$major" -ge "$FIRST_PRERELEASE_CORE" ]
+}
+
+# core_required_php: The PHP package a core major needs. Empty when unknown,
+# which leaves the PHP choice entirely to the caller.
+core_required_php() {
+  case "$(core_major "$1")" in
+    12) printf 'php85' ;;
+    11) printf 'php83' ;;
+    *) printf '' ;;
+  esac
+}
+
+php_rank() {
+  case "$1" in
+    php74) printf 74 ;;
+    php80) printf 80 ;;
+    php81) printf 81 ;;
+    php82) printf 82 ;;
+    php83) printf 83 ;;
+    php84) printf 84 ;;
+    php85) printf 85 ;;
+    *) printf -1 ;;
+  esac
+}
 
 ENV_DOCROOT=$(env_file_value DOCROOT || true)
 DETECTED_DOCROOT=""
@@ -168,6 +262,9 @@ fi
 if [ "$MODE" = "new" ] && [ -n "$DETECTED_DOCROOT" ]; then
   fail "--new requested, but Drupal code already exists in '$DETECTED_DOCROOT'"
 fi
+if [ -n "$CORE_VERSION" ] && [ "$MODE" != "new" ]; then
+  fail "--core only applies when creating a new project; drop --core or pass --new"
+fi
 
 if [ "$MODE" = "existing" ]; then
   DOCROOT="$DETECTED_DOCROOT"
@@ -189,6 +286,7 @@ fi
 
 if [ -z "$PHP_VERSION" ]; then
   PHP_VERSION=$(env_file_value PHP_VERSION || true)
+  [ -z "$PHP_VERSION" ] || PHP_EXPLICIT=true
 fi
 if [ -z "$PHP_VERSION" ]; then
   if [ "$NON_INTERACTIVE" = false ]; then
@@ -204,6 +302,7 @@ if [ -z "$PHP_VERSION" ]; then
       3) PHP_VERSION="php83" ;;
       *) echo "Invalid choice, using default: php84"; PHP_VERSION="php84" ;;
     esac
+    [ -z "${choice:-}" ] || PHP_EXPLICIT=true
   else
     PHP_VERSION="php84"
   fi
@@ -211,20 +310,43 @@ fi
 
 if [ "$MODE" = "new" ] && [ -z "$DRUPAL_PACKAGE" ]; then
   DRUPAL_PACKAGE=$(env_file_value DRUPAL_PACKAGE || true)
+  [ -z "$DRUPAL_PACKAGE" ] || PACKAGE_EXPLICIT=true
 fi
+
+# --core picks the core-versioned template, so an explicit package only needs a
+# constraint added when it is one of those templates.
+if [ "$MODE" = "new" ] && [ -z "$DRUPAL_PACKAGE" ] && [ -n "$CORE_VERSION" ]; then
+  DRUPAL_PACKAGE="drupal/recommended-project"
+fi
+if [ "$MODE" = "new" ] && [ -n "$DRUPAL_PACKAGE" ] && [ -n "$CORE_VERSION" ]; then
+  CORE_CONSTRAINT=$(core_constraint "$CORE_VERSION")
+  if is_core_versioned_package "$DRUPAL_PACKAGE"; then
+    case "$DRUPAL_PACKAGE" in
+      *:*) ;; # the caller already pinned a version, so keep theirs
+      *) DRUPAL_PACKAGE="$DRUPAL_PACKAGE:$CORE_CONSTRAINT" ;;
+    esac
+  elif core_is_prerelease "$CORE_CONSTRAINT"; then
+    fail "'$DRUPAL_PACKAGE' is versioned independently of Drupal core, so it cannot target core $CORE_VERSION, which has no stable release. Use drupal/recommended-project, or drop --core."
+  else
+    echo "Note: --core $CORE_VERSION does not constrain '$DRUPAL_PACKAGE'; that package is versioned independently of Drupal core." >&2
+  fi
+fi
+
 if [ "$MODE" = "new" ] && [ -z "$DRUPAL_PACKAGE" ]; then
   if [ "$NON_INTERACTIVE" = false ]; then
     echo "Select a starting package:"
-    echo "  1) drupal/cms (Drupal CMS - recommended)"
-    echo "  2) drupal/recommended-project (Minimal Drupal core)"
-    echo "  3) centarro/commerce-kickstart-project (Commerce Kickstart)"
-    echo "  4) Other (enter custom package name)"
+    echo "  1) drupal/cms (Drupal CMS - stable)"
+    echo "  2) drupal/recommended-project:^11 (Drupal core - stable)"
+    echo "  3) centarro/commerce-kickstart-project (Commerce Kickstart - stable)"
+    echo "  4) drupal/recommended-project:^12 (Drupal core NEXT - pre-release, needs PHP 8.5)"
+    echo "  5) Other (enter custom package name)"
     read -r -p "Choice [1]: " choice
     case "${choice:-1}" in
       1|"") DRUPAL_PACKAGE="drupal/cms" ;;
-      2) DRUPAL_PACKAGE="drupal/recommended-project" ;;
+      2) DRUPAL_PACKAGE="drupal/recommended-project:^11" ;;
       3) DRUPAL_PACKAGE="centarro/commerce-kickstart-project" ;;
-      4)
+      4) DRUPAL_PACKAGE="drupal/recommended-project:^12" ;;
+      5)
         read -r -p "Enter composer package name: " DRUPAL_PACKAGE
         DRUPAL_PACKAGE="${DRUPAL_PACKAGE:-drupal/cms}"
         ;;
@@ -233,6 +355,21 @@ if [ "$MODE" = "new" ] && [ -z "$DRUPAL_PACKAGE" ]; then
   else
     DRUPAL_PACKAGE="drupal/cms"
   fi
+fi
+
+# Whatever produced the constraint -- --core, .env, or a prompt answer -- a
+# constraint naming a major without a stable release means Composer has to be
+# allowed to install pre-releases. The inline @dev flag is appended as well so
+# the DRUPAL_PACKAGE value keeps working wherever else it is used.
+case "$DRUPAL_PACKAGE" in
+  *:*) TARGET_CONSTRAINT="${DRUPAL_PACKAGE#*:}" ;;
+esac
+if [ -n "$TARGET_CONSTRAINT" ] && core_is_prerelease "$TARGET_CONSTRAINT"; then
+  CORE_STABILITY="dev"
+  case "$DRUPAL_PACKAGE" in
+    *@*) ;;
+    *) DRUPAL_PACKAGE="$DRUPAL_PACKAGE@dev" ;;
+  esac
 fi
 
 if [ -z "$PORT" ]; then
@@ -252,6 +389,7 @@ if [ "$FORCE_ENV" = false ]; then
   ENV_PORT=$(env_file_value PORT || true)
   SITE_NAME="${ENV_PROJECT_NAME:-$SITE_NAME}"
   PHP_VERSION="${ENV_PHP_VERSION:-$PHP_VERSION}"
+  [ -z "$ENV_PHP_VERSION" ] || PHP_EXPLICIT=true
   PORT="${ENV_PORT:-$PORT}"
   DOMAIN=$(env_file_value DOMAIN || true)
 else
@@ -266,6 +404,21 @@ case "$PHP_VERSION" in
   php74|php81|php82|php83|php84|php85) ;;
   *) fail "unsupported PHP version: $PHP_VERSION" ;;
 esac
+
+# A core major pins the PHP it needs. An unchosen PHP is raised to meet it; a
+# PHP the caller asked for is left alone but must be new enough, because
+# Composer would only fail later with a far less obvious message.
+REQUIRED_PHP=$(core_required_php "$TARGET_CONSTRAINT")
+if [ -n "$REQUIRED_PHP" ]; then
+  if [ "$(php_rank "$PHP_VERSION")" -lt "$(php_rank "$REQUIRED_PHP")" ]; then
+    if [ "$PHP_EXPLICIT" = true ]; then
+      fail "Drupal core $TARGET_CONSTRAINT requires PHP $REQUIRED_PHP or newer, but PHP $PHP_VERSION was requested"
+    fi
+    echo "Raising PHP to $REQUIRED_PHP, the minimum for Drupal core $TARGET_CONSTRAINT"
+    PHP_VERSION="$REQUIRED_PHP"
+  fi
+fi
+
 if ! echo "$PORT" | grep -qE '^[0-9]+$' || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
   fail "invalid port: $PORT"
 fi
@@ -275,6 +428,8 @@ echo "========================================="
 echo "Setting up Drupal project"
 echo "  Mode:        $MODE"
 [ "$MODE" = "new" ] && echo "  Package:     $DRUPAL_PACKAGE"
+[ -n "$TARGET_CONSTRAINT" ] && echo "  Core:        $TARGET_CONSTRAINT"
+[ -n "$CORE_STABILITY" ] && echo "  Stability:   $CORE_STABILITY (core has no stable release)"
 echo "  PHP:         $PHP_VERSION"
 echo "  Site name:   $SITE_NAME"
 echo "  Docroot:     $DOCROOT"
@@ -298,7 +453,15 @@ if [ "$MODE" = "new" ]; then
 
   echo "Running composer create-project..."
   echo "  $DRUPAL_PACKAGE -> $TEMP_DIR"
-  if ! composer create-project "$DRUPAL_PACKAGE" "$TEMP_DIR" --no-interaction 2>&1; then
+  # Pre-release cores need minimum-stability, and --prefer-stable keeps every
+  # dependency that has a stable release on its stable release.
+  CREATE_OPTS=(--no-interaction)
+  INSTALL_OPTS=()
+  if [ -n "$CORE_STABILITY" ]; then
+    CREATE_OPTS+=(--stability="$CORE_STABILITY" --prefer-stable)
+    INSTALL_OPTS+=(--prefer-stable)
+  fi
+  if ! composer create-project "$DRUPAL_PACKAGE" "$TEMP_DIR" "${CREATE_OPTS[@]}" 2>&1; then
     fail "composer create-project failed"
   fi
 
@@ -312,7 +475,7 @@ if [ "$MODE" = "new" ]; then
 
   echo ""
   echo "Running composer install..."
-  composer install 2>&1 || echo "composer install completed with warnings"
+  composer install "${INSTALL_OPTS[@]}" 2>&1 || echo "composer install completed with warnings"
 else
   write_env_from_example "$SITE_NAME" "$PHP_VERSION" "$PORT" "$DOCROOT" "$FORCE_ENV"
 fi
@@ -360,11 +523,15 @@ echo "✅ Setup complete!"
 echo "========================================="
 echo ""
 echo "Mode:          $MODE"
+[ "$MODE" = "new" ] && echo "Package:       $DRUPAL_PACKAGE"
+[ -n "$TARGET_CONSTRAINT" ] && echo "Core:          $TARGET_CONSTRAINT"
 echo "Site name:     $SITE_NAME"
 echo "PHP version:   $PHP_VERSION"
 echo "Docroot:       $DOCROOT"
 echo "Port:          $PORT"
 echo "URL:           http://${DOMAIN}:${PORT}"
+echo ""
+[ -n "$CORE_STABILITY" ] && echo "⚠️  This project targets a Drupal core that has no stable release yet."
 echo ""
 
 if [ -n "${DIRENV_DIR:-}" ]; then

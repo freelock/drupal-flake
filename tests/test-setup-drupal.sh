@@ -269,4 +269,167 @@ mkdir -p "$fixture"
   grep -Fq '../../data/nested-site-db/mysql.sock' public/drupal/sites/default/settings.php
 )
 
+echo "Test: --help documents --core"
+setup-drupal --help | grep -Fq -- '--core VERSION'
+
+echo "Test: --core 12 targets the pre-release line with dev stability and PHP 8.5"
+fixture="$TMP/core-12"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  setup-drupal --new --non-interactive --core 12 --site-name d12-site --port 9460
+  grep -Fq 'create-project drupal/recommended-project:^12@dev' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--prefer-stable' "$TEST_COMPOSER_LOG"
+  # composer install must not re-resolve onto pre-release branches, but it
+  # still gets --prefer-stable so it can keep the locked stable versions.
+  assert_contains "$TEST_COMPOSER_LOG" 'install --prefer-stable'
+  # Drupal 12 needs PHP 8.5, which the default php84 does not satisfy.
+  assert_contains .env 'PHP_VERSION=php85'
+)
+
+echo "Test: the interactive package menu offers the pre-release core and raises PHP for it"
+fixture="$TMP/core-12-interactive"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  # site name, then defaults for PHP, then package choice 4, then default port.
+  printf 'interactive-core-site\n\n4\n\n' | setup-drupal >run.log 2>&1
+  grep -Fq 'drupal/recommended-project:^12 (Drupal core NEXT' run.log
+  grep -Fq 'create-project drupal/recommended-project:^12@dev' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
+  # Accepting the default PHP at the prompt is not an explicit choice, so the
+  # core gets to raise it to the version Drupal 12 needs.
+  grep -Fq 'Raising PHP to php85' run.log
+  assert_contains .env 'PHP_VERSION=php85'
+)
+
+echo "Test: --core 11 stays on stable without dev stability"
+fixture="$TMP/core-11"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  setup-drupal --new --non-interactive --core 11 --site-name d11-site --port 9461
+  grep -Fq 'create-project drupal/recommended-project:^11 ' "$TEST_COMPOSER_LOG"
+  ! grep -Fq -- '--stability' "$TEST_COMPOSER_LOG"
+  assert_contains "$TEST_COMPOSER_LOG" 'install'
+  # Core 11 only needs PHP 8.3, so the default php84 is already good enough.
+  assert_contains .env 'PHP_VERSION=php84'
+)
+
+echo "Test: a non-core-versioned package cannot target a core without a stable release"
+fixture="$TMP/core-12-cms"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  if setup-drupal --new --non-interactive --core 12 \
+    --package drupal/cms --site-name cms-site >output.log 2>&1; then
+    echo "--core 12 was unexpectedly accepted for drupal/cms" >&2
+    exit 1
+  fi
+  grep -Fq 'versioned independently of Drupal core' output.log
+  [ ! -s "$TEST_COMPOSER_LOG" ]
+)
+
+echo "Test: --core 11 accepts an independently versioned package with a note"
+fixture="$TMP/core-11-cms"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  setup-drupal --new --non-interactive --core 11 \
+    --package drupal/cms --site-name cms11-site --port 9462 2>note.log
+  grep -Fq 'does not constrain' note.log
+  grep -Fq 'create-project drupal/cms ' "$TEST_COMPOSER_LOG"
+  ! grep -Fq -- '--stability' "$TEST_COMPOSER_LOG"
+)
+
+echo "Test: --core refuses to run against an existing project"
+fixture="$TMP/core-existing"
+mkdir -p "$fixture/web/core/lib"
+printf '<?php // index\n' > "$fixture/web/index.php"
+printf '<?php // core\n' > "$fixture/web/core/lib/Drupal.php"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  if setup-drupal --existing --non-interactive --core 12 >output.log 2>&1; then
+    echo "--core was unexpectedly accepted with --existing" >&2
+    exit 1
+  fi
+  grep -Fq -- '--core only applies when creating a new project' output.log
+  [ ! -s "$TEST_COMPOSER_LOG" ]
+)
+
+echo "Test: an explicitly requested PHP below the core minimum is refused"
+fixture="$TMP/core-12-old-php"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  if setup-drupal --new --non-interactive --core 12 \
+    --php-version php84 --site-name old-php-site >output.log 2>&1; then
+    echo "php84 was unexpectedly accepted for Drupal 12" >&2
+    exit 1
+  fi
+  grep -Fq 'requires PHP php85 or newer' output.log
+  [ ! -s "$TEST_COMPOSER_LOG" ]
+)
+
+echo "Test: a pre-release constraint in .env enables dev stability on its own"
+fixture="$TMP/env-pre-release"
+mkdir -p "$fixture"
+cat > "$fixture/.env" <<'EOF'
+DRUPAL_PACKAGE=drupal/recommended-project:^12
+PHP_VERSION=php85
+EOF
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  setup-drupal --new --non-interactive --site-name env-core-site --port 9463
+  grep -Fq 'create-project drupal/recommended-project:^12@dev' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
+  assert_contains .env 'PHP_VERSION=php85'
+)
+
+echo "Test: an already pinned pre-release package keeps its own stability flag"
+fixture="$TMP/explicit-stability"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  setup-drupal --new --non-interactive \
+    --package 'drupal/recommended-project:12.0.0-alpha1@alpha' \
+    --php-version php85 --site-name pinned-site --port 9464
+  grep -Fq 'create-project drupal/recommended-project:12.0.0-alpha1@alpha ' "$TEST_COMPOSER_LOG"
+  ! grep -Fq 'alpha1@alpha@dev' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
+)
+
+echo "Test: an exact pin on a stable core adds no stability flags"
+fixture="$TMP/exact-stable"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  setup-drupal --new --non-interactive \
+    --package 'drupal/recommended-project:11.2.5' \
+    --site-name pinned-stable-site --port 9465
+  grep -Fq 'create-project drupal/recommended-project:11.2.5 ' "$TEST_COMPOSER_LOG"
+  ! grep -Fq -- '--stability' "$TEST_COMPOSER_LOG"
+)
+
 echo "All setup-drupal fixture tests passed"
