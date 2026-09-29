@@ -15,6 +15,18 @@ cat > "$BIN/composer" <<'EOF'
 #!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >> "$TEST_COMPOSER_LOG"
+# Mirror the options the real Composer accepts, so a flag that only exists on
+# another subcommand (create-project has no --prefer-stable) fails here too.
+cmd="$1"
+shift
+for arg in "$@"; do
+  case "$cmd:$arg" in
+    create-project:--no-interaction|create-project:--stability=*) ;;
+    install:--no-interaction) ;;
+    *:--*) echo "The \"${arg%%=*}\" option does not exist for $cmd." >&2; exit 1 ;;
+  esac
+done
+set -- "$cmd" "$@"
 case "$1" in
   create-project)
     mkdir -p "$3/web/core/lib"
@@ -272,7 +284,7 @@ mkdir -p "$fixture"
 echo "Test: --help documents --core"
 setup-drupal --help | grep -Fq -- '--core VERSION'
 
-echo "Test: --core 12 targets the pre-release line with dev stability and PHP 8.5"
+echo "Test: --core 12 targets the pre-release line with alpha stability and PHP 8.5"
 fixture="$TMP/core-12"
 mkdir -p "$fixture"
 (
@@ -280,35 +292,68 @@ mkdir -p "$fixture"
   write_env_example
   reset_logs
   setup-drupal --new --non-interactive --core 12 --site-name d12-site --port 9460
-  grep -Fq 'create-project drupal/recommended-project:^12@dev' "$TEST_COMPOSER_LOG"
-  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
-  grep -Fq -- '--prefer-stable' "$TEST_COMPOSER_LOG"
-  # composer install must not re-resolve onto pre-release branches, but it
-  # still gets --prefer-stable so it can keep the locked stable versions.
-  assert_contains "$TEST_COMPOSER_LOG" 'install --prefer-stable'
+  grep -Fq 'create-project drupal/recommended-project:^12@alpha' "$TEST_COMPOSER_LOG"
+  # "alpha" admits tagged pre-releases but excludes dev branches, which sort
+  # above the tagged release and would be installed instead.
+  grep -Fq -- '--stability=alpha' "$TEST_COMPOSER_LOG"
+  ! grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
+  # create-project rejects --prefer-stable; Composer records it in the
+  # generated composer.json, so neither command needs it.
+  ! grep -Fq -- '--prefer-stable' "$TEST_COMPOSER_LOG"
+  assert_contains "$TEST_COMPOSER_LOG" 'install'
   # Drupal 12 needs PHP 8.5, which the default php84 does not satisfy.
   assert_contains .env 'PHP_VERSION=php85'
 )
 
-echo "Test: the interactive package menu offers the pre-release core and raises PHP for it"
+echo "Test: the interactive flow asks for the package first and defaults PHP from it"
 fixture="$TMP/core-12-interactive"
 mkdir -p "$fixture"
 (
   cd "$fixture"
   write_env_example
   reset_logs
-  # site name, then defaults for PHP, then package choice 4, then default port.
-  printf 'interactive-core-site\n\n4\n\n' | setup-drupal >run.log 2>&1
+  # site name, package choice 4, default port. There is no PHP prompt because
+  # Drupal 12 only supports PHP 8.5.
+  printf 'interactive-core-site\n4\n\n' | setup-drupal >run.log 2>&1
   grep -Fq 'drupal/recommended-project:^12 (Drupal core NEXT' run.log
-  grep -Fq 'create-project drupal/recommended-project:^12@dev' "$TEST_COMPOSER_LOG"
-  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
-  # Accepting the default PHP at the prompt is not an explicit choice, so the
-  # core gets to raise it to the version Drupal 12 needs.
-  grep -Fq 'Raising PHP to php85' run.log
+  grep -Fq 'create-project drupal/recommended-project:^12@alpha' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--stability=alpha' "$TEST_COMPOSER_LOG"
+  ! grep -Fq 'Select PHP version' run.log
+  grep -Fq 'Using php85' run.log
+  assert_contains .env 'PHP_VERSION=php85'
+  # The package prompt must come before anything PHP related.
+  [ "$(grep -n 'Select a starting package' run.log | cut -d: -f1)" -lt "$(grep -n 'Using php85' run.log | cut -d: -f1)" ]
+)
+
+echo "Test: the interactive PHP menu still offers every version for a stable core"
+fixture="$TMP/core-11-interactive"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  printf 'interactive-d11-site\n2\n\n\n' | setup-drupal >run.log 2>&1
+  grep -Fq 'Select PHP version' run.log
+  grep -Fq '1) php84 (default)' run.log
+  grep -Fq '2) php85' run.log
+  grep -Fq '3) php83' run.log
+  grep -Fq 'create-project drupal/recommended-project:^11 ' "$TEST_COMPOSER_LOG"
+  assert_contains .env 'PHP_VERSION=php84'
+)
+
+echo "Test: the PHP menu is unchanged when no core is implied"
+fixture="$TMP/cms-interactive"
+mkdir -p "$fixture"
+(
+  cd "$fixture"
+  write_env_example
+  reset_logs
+  printf 'interactive-cms-site\n1\n2\n\n' | setup-drupal >run.log 2>&1
+  grep -Fq 'create-project drupal/cms ' "$TEST_COMPOSER_LOG"
   assert_contains .env 'PHP_VERSION=php85'
 )
 
-echo "Test: --core 11 stays on stable without dev stability"
+echo "Test: --core 11 stays on stable without any stability flag"
 fixture="$TMP/core-11"
 mkdir -p "$fixture"
 (
@@ -386,7 +431,7 @@ mkdir -p "$fixture"
   [ ! -s "$TEST_COMPOSER_LOG" ]
 )
 
-echo "Test: a pre-release constraint in .env enables dev stability on its own"
+echo "Test: a pre-release constraint in .env enables pre-release stability on its own"
 fixture="$TMP/env-pre-release"
 mkdir -p "$fixture"
 cat > "$fixture/.env" <<'EOF'
@@ -398,8 +443,8 @@ EOF
   write_env_example
   reset_logs
   setup-drupal --new --non-interactive --site-name env-core-site --port 9463
-  grep -Fq 'create-project drupal/recommended-project:^12@dev' "$TEST_COMPOSER_LOG"
-  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
+  grep -Fq 'create-project drupal/recommended-project:^12@alpha' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--stability=alpha' "$TEST_COMPOSER_LOG"
   assert_contains .env 'PHP_VERSION=php85'
 )
 
@@ -414,8 +459,8 @@ mkdir -p "$fixture"
     --package 'drupal/recommended-project:12.0.0-alpha1@alpha' \
     --php-version php85 --site-name pinned-site --port 9464
   grep -Fq 'create-project drupal/recommended-project:12.0.0-alpha1@alpha ' "$TEST_COMPOSER_LOG"
-  ! grep -Fq 'alpha1@alpha@dev' "$TEST_COMPOSER_LOG"
-  grep -Fq -- '--stability=dev' "$TEST_COMPOSER_LOG"
+  ! grep -Fq 'alpha1@alpha@alpha' "$TEST_COMPOSER_LOG"
+  grep -Fq -- '--stability=alpha' "$TEST_COMPOSER_LOG"
 )
 
 echo "Test: an exact pin on a stable core adds no stability flags"

@@ -98,11 +98,13 @@ A bare major becomes a `^MAJOR` constraint, so new point releases are picked up 
 
 Core majors without a stable release cannot be installed by a plain `composer create-project`, because Composer refuses pre-release versions by default. When the target major has no stable release, `setup-drupal`:
 
-- appends the inline `@dev` stability flag to the package, so the value stored in `DRUPAL_PACKAGE` keeps working anywhere else it is used
-- passes `--stability=dev --prefer-stable` to `composer create-project`, and `--prefer-stable` to the follow-up `composer install`, so dependencies that *do* have stable releases stay on them
-- raises `PHP_VERSION` to the minimum that core needs, unless you requested a version yourself — in which case it refuses rather than letting Composer fail with an opaque solver message
+- appends the inline `@alpha` stability flag to the package, so the value stored in `DRUPAL_PACKAGE` keeps working anywhere else it is used
+- passes `--stability=alpha` to `composer create-project`. `alpha` is the lowest level above `dev`, which matters: `dev` would also admit development branches such as `12.0.x-dev`, and those carry a higher version than the tagged release, so they would win the solve instead of it
+- restricts the PHP choice to versions that core supports. The interactive flow asks for the package first, then offers only compatible PHP versions; Drupal 12 needs PHP 8.5, so it is selected without a prompt. A `--php-version` or `.env` value that is too old is refused rather than letting Composer fail with an opaque solver message
 
-Set `DEMO_STABILITY=dev` if you point `nix run .#demo` or `start-demo` at a pre-release package; those paths do not infer stability from the package name.
+Composer records `minimum-stability` and `prefer-stable` in the `composer.json` it generates, so the follow-up `composer install` needs no extra flags and dependencies that do have stable releases stay on them. As beta and stable are released, the same `^12` constraint picks them up with no change to the command.
+
+Set `DEMO_STABILITY=alpha` if you point `nix run .#demo` or `start-demo` at a pre-release package; those paths do not infer stability from the package name.
 
 ## Setting name, port, domain
 

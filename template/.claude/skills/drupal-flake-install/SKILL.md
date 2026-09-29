@@ -67,10 +67,10 @@ drush recipe:validate recipes/contrib/<name>
 ```
 
 ### Drupal 12 Specifics
-- Requires PHP 8.5 (`php85`). `setup-drupal --core 12` raises `PHP_VERSION` for you unless you set it yourself.
+- Requires PHP 8.5 (`php85`). `setup-drupal` selects it automatically when you choose Drupal 12, and refuses an older `--php-version`.
 - No stable release exists yet, only `12.0.0-alpha1` on `drupal/recommended-project` and `drupal/core-recommended`. `drupal/cms` has no Drupal 12 release.
-- `setup-drupal` handles the Composer stability flags: it appends the inline `@dev` flag to the package and passes `--stability=dev --prefer-stable` to `create-project`, so dependencies that do have stable releases still resolve to them.
-- Driving Composer or `nix run .#demo` yourself against a pre-release package needs `DEMO_STABILITY=dev`; those paths do not infer stability from the package name.
+- `setup-drupal` handles the Composer stability flags: it appends the inline `@alpha` flag to the package and passes `--stability=alpha` to `create-project`. `alpha` rather than `dev` matters, because a `dev` stability level also admits the `12.0.x-dev` branch, which outranks the tagged release and would be installed instead.
+- Driving Composer or `nix run .#demo` yourself against a pre-release package needs `DEMO_STABILITY=alpha`; those paths do not infer stability from the package name.
 - Some contrib modules may need `--stability=dev`
 - Check core compatibility: `composer show drupal/core | grep versions`
 
